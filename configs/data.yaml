@@ -1,0 +1,6 @@
+# Layer 0/1 data ingestion + storage config.
+currency: BTC
+history_start: "2021-01-01"
+raw_dir: data/raw
+curated_dir: data/curated
+features_dir: data/features

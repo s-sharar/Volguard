@@ -1,0 +1,11 @@
+[Unit]
+Description=Run VolGuard collector sync daily
+
+[Timer]
+# Just after 08:10 UTC — after the daily snap boundary, when the prior UTC day's
+# file is complete. Persistent=true catches up if the box was off at trigger time.
+OnCalendar=*-*-* 08:15:00 UTC
+Persistent=true
+
+[Install]
+WantedBy=timers.target

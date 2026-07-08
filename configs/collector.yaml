@@ -1,0 +1,9 @@
+# Live VPS collector config (plan sections 5.3, M0).
+currency: BTC
+base_url: "https://www.deribit.com/api/v2"
+poll_seconds: 300
+max_ticker_instruments: 300
+request_timeout_s: 15.0
+max_retries: 4
+retry_backoff_s: 2.0
+out_dir: data/raw/ticker_snapshots
