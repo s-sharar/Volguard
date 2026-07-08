@@ -1,0 +1,10 @@
+# Model A — residual grid forecaster (plan section 10).
+# Placeholder hyperparameters; frozen after fold 2 during walk-forward.
+lookback_days: 20
+latent_dim: 16
+gru_hidden: 32
+lambda_butterfly: 0.1
+lambda_calendar: 0.1
+target: residual   # residual (Δw over persistence) | level
+learning_rate: 1.0e-3
+max_epochs: 100

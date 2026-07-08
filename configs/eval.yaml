@@ -1,0 +1,7 @@
+# Walk-forward evaluation config (plan section 12).
+# Expanding window: 18mo train -> 2mo val -> 2mo test, step 2mo.
+initial_train_months: 18
+val_months: 2
+test_months: 2
+step_months: 2
+seeds: [0, 1, 2]

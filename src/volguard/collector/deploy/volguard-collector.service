@@ -1,0 +1,20 @@
+[Unit]
+Description=VolGuard Deribit options collector
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=volguard
+WorkingDirectory=/opt/volguard
+# uv installs to ~/.local/bin; adjust if uv lives elsewhere.
+Environment=PATH=/home/volguard/.local/bin:/usr/local/bin:/usr/bin:/bin
+ExecStart=/home/volguard/.local/bin/uv run volguard collect
+Restart=always
+RestartSec=10
+# Crash-loop guard: stop trying if it fails 5x within 5 min.
+StartLimitIntervalSec=300
+StartLimitBurst=5
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,14 @@
+[Unit]
+Description=VolGuard collector -> object storage sync (rclone)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=volguard
+WorkingDirectory=/opt/volguard
+# Sync completed NDJSON snapshots to the remote bucket. "volguard" is the rclone
+# remote name; "volguard-collector" is the bucket. Adjust to match your setup.
+ExecStart=/usr/bin/rclone copy /opt/volguard/data/raw/ticker_snapshots \
+    volguard:volguard-collector/ticker_snapshots \
+    --log-level INFO --transfers 4 --checkers 8
