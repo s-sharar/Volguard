@@ -1399,9 +1399,11 @@ name = "volguard"
 version = "0.0.1"
 source = { editable = "." }
 dependencies = [
+    { name = "cvxpy" },
     { name = "duckdb" },
     { name = "httpx" },
     { name = "numpy" },
+    { name = "osqp" },
     { name = "pandera", extra = ["polars"] },
     { name = "polars" },
     { name = "pyarrow" },
@@ -1418,10 +1420,6 @@ collector = [
 ]
 ml = [
     { name = "torch" },
-]
-opt = [
-    { name = "cvxpy" },
-    { name = "osqp" },
 ]
 viz = [
     { name = "matplotlib" },
@@ -1441,12 +1439,12 @@ dev = [
 [package.metadata]
 requires-dist = [
     { name = "aiohttp", marker = "extra == 'collector'", specifier = ">=3.9" },
-    { name = "cvxpy", marker = "extra == 'opt'", specifier = ">=1.5" },
+    { name = "cvxpy", specifier = ">=1.5" },
     { name = "duckdb", specifier = ">=1.0" },
     { name = "httpx", specifier = ">=0.27" },
     { name = "matplotlib", marker = "extra == 'viz'", specifier = ">=3.9" },
     { name = "numpy", specifier = ">=2.0" },
-    { name = "osqp", marker = "extra == 'opt'", specifier = ">=0.6" },
+    { name = "osqp", specifier = ">=0.6" },
     { name = "pandera", extras = ["polars"], specifier = ">=0.20" },
     { name = "plotly", marker = "extra == 'viz'", specifier = ">=5.22" },
     { name = "polars", specifier = ">=1.0" },
@@ -1458,7 +1456,7 @@ requires-dist = [
     { name = "torch", marker = "extra == 'ml'", specifier = ">=2.3" },
     { name = "typer", specifier = ">=0.12" },
 ]
-provides-extras = ["ml", "opt", "viz", "collector"]
+provides-extras = ["ml", "viz", "collector"]
 
 [package.metadata.requires-dev]
 dev = [

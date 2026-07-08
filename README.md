@@ -21,11 +21,13 @@ uv run volguard version # sanity check the CLI
 uv run pytest           # run the smoke tests
 ```
 
+The arbitrage-repair QP (cvxpy + osqp) is a core dependency, so a plain
+`uv sync` installs everything needed to run the full test suite.
+
 Optional dependency groups (kept out of the default sync to stay fast):
 
 ```bash
 uv sync --extra ml         # torch (modeling)
-uv sync --extra opt        # cvxpy + osqp (arbitrage-repair QP)
 uv sync --extra viz        # matplotlib + plotly
 uv sync --extra collector  # aiohttp (live poller)
 ```
