@@ -11,7 +11,7 @@ from pathlib import Path
 from typing import Any
 
 import yaml
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 # Repo root = three levels up from this file: src/volguard/config.py -> repo/
 REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -85,6 +85,74 @@ class SurfaceConfig(BaseModel):
     moneyness_grid: list[float] = Field(
         default_factory=lambda: [-2, -1.5, -1, -0.5, 0, 0.5, 1, 1.5, 2]
     )
+
+
+class CurateConfig(BaseModel):
+    """M3 curation parameters: snap window, forward inference, filters.
+
+    Companion to :class:`SurfaceConfig` (which already carries snap time and
+    bands); where they overlap M3 reuses the same defaults but adds the
+    curation-specific knobs for the snap-window builder, three-tier forward
+    inference, and the quality filter cascade (design Model 1).
+    """
+
+    # Snap window (plan section 7).
+    snap_hour_utc: int = 8
+    snap_minute_utc: int = 5
+    window_minutes: int = 60  # base [07:05, 08:05]
+    widen_step_minutes: int = 60  # widen when sparse
+    max_window_minutes: int = 360  # cap widening at 6h back
+    min_trades_per_expiry: int = 4  # sparsity trigger for widening
+    recency_half_life_s: float = 900.0  # 15-min exp-decay half life
+
+    # Forward inference.
+    pcp_pair_window_s: float = 60.0  # max C/P timestamp gap for a PCP pair
+    min_pcp_pairs: int = 1
+
+    # Filters (bands mirror SurfaceConfig defaults).
+    tau_min_days: float = 2.0
+    delta_min: float = 0.02
+    delta_max: float = 0.98
+    iv_min: float = 0.01
+    iv_max: float = 5.0
+    mad_multiplier: float = 5.0
+    min_size_btc: float = 0.1
+
+    # IV cross-check.
+    iv_divergence_tol: float = 0.02  # 2 vol points, in fraction units
+
+    @property
+    def tau_min_years(self) -> float:
+        """Minimum time-to-expiry in years, derived from ``tau_min_days``."""
+        return self.tau_min_days / 365.0
+
+    @model_validator(mode="after")
+    def _check_bands_and_positivity(self) -> CurateConfig:
+        """Reject invalid band ordering, non-positive knobs, and window bounds."""
+        if not self.delta_min < self.delta_max:
+            raise ValueError(
+                f"delta_min ({self.delta_min}) must be < delta_max ({self.delta_max})"
+            )
+        if not self.iv_min < self.iv_max:
+            raise ValueError(f"iv_min ({self.iv_min}) must be < iv_max ({self.iv_max})")
+        if self.delta_min <= 0 or self.delta_max <= 0:
+            raise ValueError("delta band must be strictly positive")
+        if self.iv_min <= 0 or self.iv_max <= 0:
+            raise ValueError("iv band must be strictly positive")
+        if self.window_minutes > self.max_window_minutes:
+            raise ValueError(
+                f"window_minutes ({self.window_minutes}) must be "
+                f"<= max_window_minutes ({self.max_window_minutes})"
+            )
+        if self.min_trades_per_expiry < 1:
+            raise ValueError("min_trades_per_expiry must be >= 1")
+        if self.iv_divergence_tol <= 0:
+            raise ValueError("iv_divergence_tol must be strictly positive")
+        if self.mad_multiplier <= 0:
+            raise ValueError("mad_multiplier must be strictly positive")
+        if self.recency_half_life_s <= 0:
+            raise ValueError("recency_half_life_s must be strictly positive")
+        return self
 
 
 class EvalConfig(BaseModel):
