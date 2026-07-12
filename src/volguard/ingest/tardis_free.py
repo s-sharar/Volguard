@@ -36,14 +36,33 @@ _DECEMBER = 12
 # Recent free days are ~1 GB gzipped / tens of millions of rows, so convert by
 # streaming rather than materializing the whole CSV in memory.
 _CONTRACT_SAMPLE_ROWS = 1000
-# Read the contract columns as fixed dtypes (via schema_overrides) so partitions
+# Read the numeric columns as fixed dtypes (via schema_overrides) so partitions
 # are consistent across days regardless of what CSV inference would pick per day.
+# Amount/price/greek columns are integer-valued in the header sample of some
+# days (e.g. `bid_amount` = 1, 5, 100) but carry fractional values deeper in the
+# file, so inference locks them to i64 and then fails on the first float. Pinning
+# every numeric column to its true dtype avoids that per-day drift entirely.
 _CONTRACT_CASTS = {
     "timestamp": pl.Int64,
-    "strike_price": pl.Float64,
+    "local_timestamp": pl.Int64,
     "expiration": pl.Int64,
+    "strike_price": pl.Float64,
+    "open_interest": pl.Float64,
+    "last_price": pl.Float64,
+    "bid_price": pl.Float64,
+    "bid_amount": pl.Float64,
+    "bid_iv": pl.Float64,
+    "ask_price": pl.Float64,
+    "ask_amount": pl.Float64,
+    "ask_iv": pl.Float64,
+    "mark_price": pl.Float64,
     "mark_iv": pl.Float64,
     "underlying_price": pl.Float64,
+    "delta": pl.Float64,
+    "gamma": pl.Float64,
+    "vega": pl.Float64,
+    "theta": pl.Float64,
+    "rho": pl.Float64,
 }
 
 
