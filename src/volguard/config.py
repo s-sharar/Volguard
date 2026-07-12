@@ -20,13 +20,55 @@ DATA_DIR = REPO_ROOT / "data"
 
 
 class DataConfig(BaseModel):
-    """Data ingestion / storage locations and windows."""
+    """Data ingestion / storage locations and windows.
+
+    Covers all three M2 sources: the Deribit history-API trades backfill, the
+    Tardis free-day chain downloads, and the underlying OHLC/DVOL/funding pulls.
+    Per-dataset directories are derived from ``raw_dir`` so the layout stays in
+    one place (plan section 6).
+    """
 
     currency: str = "BTC"
     history_start: str = "2021-01-01"
     raw_dir: Path = DATA_DIR / "raw"
     curated_dir: Path = DATA_DIR / "curated"
     features_dir: Path = DATA_DIR / "features"
+    ref_dir: Path = DATA_DIR / "ref"
+
+    # Deribit history API serves the full trade history since launch. The DVOL,
+    # funding, delivery and instrument endpoints are only served by the main
+    # host, so underlying pulls use ``underlying_base_url`` instead.
+    history_base_url: str = "https://history.deribit.com/api/v2"
+    underlying_base_url: str = "https://www.deribit.com/api/v2"
+    rate_limit_rps: float = 5.0
+    page_count: int = 1000
+    request_timeout_s: float = 30.0
+    max_retries: int = 5
+    retry_backoff_s: float = 1.0
+
+    # Underlying series.
+    ohlc_resolution: str = "60"  # minutes per futures/index candle
+    dvol_resolution: str = "3600"  # seconds per DVOL candle
+    perpetual: str = "BTC-PERPETUAL"
+    # Instrument used as the underlying-index OHLC proxy (Deribit exposes no
+    # public index candle endpoint; the perp tracks the index closely).
+    index_instrument: str = "BTC-PERPETUAL"
+    # Explicit dated-future instruments to pull OHLC for; empty => derive the
+    # liquid set from the expired-instruments reference table.
+    future_instruments: list[str] = Field(default_factory=list)
+
+    # Tardis free-sample option chains (first of every month since 2019-04).
+    tardis_start: str = "2019-04-01"
+    tardis_base_url: str = "https://datasets.tardis.dev/v1/deribit/options_chain"
+
+    @property
+    def checkpoint_dir(self) -> Path:
+        """Resumable-backfill checkpoint location."""
+        return self.raw_dir / "_checkpoints"
+
+    def raw_table_dir(self, name: str) -> Path:
+        """Directory for a raw dataset, e.g. ``raw_table_dir("trades_options")``."""
+        return self.raw_dir / name
 
 
 class SurfaceConfig(BaseModel):

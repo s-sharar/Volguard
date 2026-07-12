@@ -4,3 +4,25 @@ history_start: "2021-01-01"
 raw_dir: data/raw
 curated_dir: data/curated
 features_dir: data/features
+ref_dir: data/ref
+
+# Deribit hosts: history serves full trade history; the main host serves
+# DVOL/funding/delivery/instruments/OHLC.
+history_base_url: "https://history.deribit.com/api/v2"
+underlying_base_url: "https://www.deribit.com/api/v2"
+rate_limit_rps: 5.0
+page_count: 1000
+request_timeout_s: 30.0
+max_retries: 5
+retry_backoff_s: 1.0
+
+# Underlying series.
+ohlc_resolution: "60"       # minutes per futures/index candle
+dvol_resolution: "3600"     # seconds per DVOL candle
+perpetual: "BTC-PERPETUAL"
+index_instrument: "BTC-PERPETUAL"
+future_instruments: []      # empty => perpetual only for futures OHLC
+
+# Tardis free-sample option chains (first of every month since 2019-04).
+tardis_start: "2019-04-01"
+tardis_base_url: "https://datasets.tardis.dev/v1/deribit/options_chain"
