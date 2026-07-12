@@ -36,3 +36,18 @@ options and evaluates the forecasts economically. Full plan lives in
   is property-tested with hypothesis.
 - Never introduce look-ahead: every feature row carries a max-source-timestamp;
   a leakage test asserts it is ≤ snap time.
+
+## Cursor Cloud specific instructions
+- The startup update script runs `uv sync`, which also provisions the pinned
+  Python 3.12 toolchain; no separate Python install is needed. `uv` lives in
+  `~/.local/bin` (already on `PATH` via `.bashrc`).
+- Repo is at M0 scaffold: every pipeline stage except the collector is a stub
+  that just prints "not implemented yet" (see `src/volguard/cli.py`). Do not
+  expect `build-surfaces`/`train`/etc. to produce data yet.
+- The one live-functional path is the collector: `uv run volguard collect`
+  streams real snapshots from Deribit's **public** API (`https://www.deribit.com`,
+  no API key/secret required) and appends NDJSON under `data/raw/ticker_snapshots`
+  (gitignored). `collect` polls forever; for a quick smoke test call
+  `volguard.collector.poller.collect_snapshot` once instead of running the loop.
+- Optional heavy extras (`--extra ml|opt|viz`) are intentionally excluded from the
+  default `uv sync`; only add them when working on those layers.
