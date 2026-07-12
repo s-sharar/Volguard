@@ -17,9 +17,10 @@ options and evaluates the forecasts economically. Full plan lives in
 `volguard_iv_surface_forecasting_eca4a5d2.plan.md`.
 
 - **Stack:** Python 3.12 (via `uv`), Polars + DuckDB + Parquet for data,
-  NumPy/SciPy for the math core, PyTorch for models (optional extra), cvxpy+OSQP
-  for the arbitrage-repair QP (optional extra), typer CLI, pydantic+YAML configs.
-- **Setup:** `uv sync` (add `--extra ml|opt|viz|collector` as needed).
+  NumPy/SciPy for the math core, cvxpy+OSQP for the arbitrage-repair QP (core —
+  the surface pipeline and its tests depend on it), PyTorch for models (optional
+  extra), typer CLI, pydantic+YAML configs.
+- **Setup:** `uv sync` (add `--extra ml|viz|collector` as needed).
 - **Run/dev command:** `uv run volguard <stage>` (ingest / build-surfaces /
   features / train / evaluate / backtest / report).
 - **Test command:** `uv run pytest` (add `--cov` for coverage).
