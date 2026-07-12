@@ -8,13 +8,16 @@ testable before the stages are implemented in later milestones.
 from __future__ import annotations
 
 import asyncio
+import logging
 
 import typer
 from rich.console import Console
 
 from volguard import __version__
 from volguard.collector.poller import run_forever
-from volguard.config import CollectorConfig, load_config
+from volguard.config import CollectorConfig, DataConfig, load_config
+
+_INGEST_SOURCES = ("deribit-history", "tardis", "underlying", "all")
 
 app = typer.Typer(
     name="volguard",
@@ -37,10 +40,42 @@ def version() -> None:
 
 @app.command()
 def ingest(
-    source: str = typer.Argument(..., help="Source: deribit-history | tardis | underlying"),
+    source: str = typer.Argument(..., help="Source: deribit-history | tardis | underlying | all"),
+    start: str | None = typer.Option(None, help="Override start date (YYYY-MM-DD)."),
+    end: str | None = typer.Option(None, help="Override end date (YYYY-MM-DD)."),
+    kinds: str = typer.Option(
+        "option,future",
+        help="deribit-history trade kinds to pull: option, future, or both (comma-sep).",
+    ),
 ) -> None:
-    """Layer 0 — pull raw data into ``data/raw/`` (M2)."""
-    _todo(f"ingest[{source}]")
+    """Layer 0 — pull raw data into ``data/raw/`` (M2).
+
+    ``deribit-history`` backfills trades (``--kinds`` selects option/future);
+    ``tardis`` downloads free-day option chains; ``underlying`` pulls
+    OHLC/DVOL/funding/deliveries. ``all`` runs every source in sequence.
+    """
+    if source not in _INGEST_SOURCES:
+        raise typer.BadParameter(f"source must be one of {', '.join(_INGEST_SOURCES)}")
+    trade_kinds = tuple(k.strip() for k in kinds.split(",") if k.strip())
+    if any(k not in ("option", "future") for k in trade_kinds):
+        raise typer.BadParameter("kinds must be a comma-separated subset of: option, future")
+
+    logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s %(message)s")
+    # Imported lazily so the CLI (and its --help tree / tests) load without the
+    # ingestion stack being importable-heavy.
+    from volguard.ingest import deribit_history, tardis_free, underlying  # noqa: PLC0415
+
+    cfg = load_config("data", DataConfig)
+
+    if source in ("deribit-history", "all"):
+        console.print(f"[green]ingest[/green]: Deribit trades backfill ({', '.join(trade_kinds)})")
+        asyncio.run(deribit_history.run_backfill(cfg, kinds=trade_kinds, start=start, end=end))
+    if source in ("tardis", "all"):
+        console.print("[green]ingest[/green]: Tardis free-day chains")
+        tardis_free.run_tardis(cfg, start=start, end=end)
+    if source in ("underlying", "all"):
+        console.print("[green]ingest[/green]: underlying OHLC/DVOL/funding")
+        asyncio.run(underlying.run_underlying(cfg, start=start, end=end))
 
 
 @app.command(name="build-surfaces")

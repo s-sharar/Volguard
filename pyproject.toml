@@ -26,6 +26,9 @@ dependencies = [
     # universal repair layer, so it must be present for tests/CI, not optional.
     "cvxpy>=1.5",
     "osqp>=0.6",
+    # IANA tz database for zoneinfo: required so Polars can materialize the
+    # UTC-aware timestamps we store on Windows (no system tz db there).
+    "tzdata>=2024.1",
 ]
 
 [project.optional-dependencies]
