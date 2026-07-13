@@ -119,9 +119,7 @@ def _frame(rows: list[_RowTuple]) -> pl.DataFrame:
             "size": pl.Series([r[5] for r in rows], dtype=pl.Float64),
             "block_flag": pl.Series([r[6] for r in rows], dtype=pl.Boolean),
             "expiry": pl.Series([_EXPIRIES[r[7]] for r in rows], dtype=_TS),
-            "source_ts": pl.Series(
-                [_SNAP - timedelta(seconds=r[8]) for r in rows], dtype=_TS
-            ),
+            "source_ts": pl.Series([_SNAP - timedelta(seconds=r[8]) for r in rows], dtype=_TS),
         }
     )
 
@@ -381,9 +379,7 @@ def test_cp9_weight_strictly_decreasing(
 
 
 @settings(max_examples=200, deadline=None)
-@given(
-    half_life_s=st.floats(min_value=1.0, max_value=1e5, allow_nan=False, allow_infinity=False)
-)
+@given(half_life_s=st.floats(min_value=1.0, max_value=1e5, allow_nan=False, allow_infinity=False))
 def test_cp9_weight_half_at_half_life(half_life_s: float) -> None:
     """CP9/R5.3-R5.4: weight is 1.0 at zero staleness and 0.5 at one half-life.
 

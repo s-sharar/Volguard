@@ -144,9 +144,9 @@ def _pcp_forward(
     if paired.height == 0:
         return math.nan, 0
 
-    gap_us = (
-        pl.col("source_ts") - pl.col("source_ts_put")
-    ).dt.total_microseconds().abs().cast(pl.Float64) / 1_000_000.0
+    gap_us = (pl.col("source_ts") - pl.col("source_ts_put")).dt.total_microseconds().abs().cast(
+        pl.Float64
+    ) / 1_000_000.0
     paired = paired.with_columns(gap_us.alias("_pair_gap_s")).filter(
         pl.col("_pair_gap_s") <= cfg.pcp_pair_window_s
     )
@@ -171,11 +171,7 @@ def _nearest_future(futures: pl.DataFrame, expiry: datetime, snap_ts: datetime) 
     if futures.height == 0:
         return math.nan
     names = futures["instrument"].to_list()
-    match = [
-        i
-        for i, name in enumerate(names)
-        if _safe_future_expiry(name) == expiry
-    ]
+    match = [i for i, name in enumerate(names) if _safe_future_expiry(name) == expiry]
     if not match:
         return math.nan
     sel = (

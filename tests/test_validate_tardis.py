@@ -110,9 +110,7 @@ def _assert_matches_golden(curated: pl.DataFrame, golden: pl.DataFrame) -> None:
 
     # Numeric columns within a tight absolute tolerance.
     for col in ("tau", "F", "k", "iv_obs", "usd_premium", "size", "staleness_s"):
-        for got, want in zip(
-            keyed_cur[col].to_list(), keyed_gold[col].to_list(), strict=True
-        ):
+        for got, want in zip(keyed_cur[col].to_list(), keyed_gold[col].to_list(), strict=True):
             assert got == pytest.approx(want, rel=1e-9, abs=1e-9), f"golden mismatch in {col}"
 
 

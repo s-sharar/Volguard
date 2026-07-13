@@ -66,9 +66,7 @@ def quotes_norm_schema(cfg: CurateConfig) -> pa.DataFrameSchema:
             "size": pa.Column(pl.Float64, pa.Check.ge(0.0)),
             "staleness_s": pa.Column(pl.Float64, pa.Check.ge(0.0)),
             "quality_flags": pa.Column(pl.Int64, pa.Check.ge(0)),
-            "fwd_method": pa.Column(
-                pl.String, pa.Check.isin(["pcp", "future", "index_carry"])
-            ),
+            "fwd_method": pa.Column(pl.String, pa.Check.isin(["pcp", "future", "index_carry"])),
         },
         strict=True,
         coerce=True,

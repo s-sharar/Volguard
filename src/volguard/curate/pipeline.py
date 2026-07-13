@@ -45,7 +45,7 @@ import polars as pl
 from volguard.config import CurateConfig, DataConfig
 from volguard.curate import filters, forwards, normalize, window
 from volguard.curate.forwards import ForwardMethod
-from volguard.curate.schemas import QUOTES_NORM, validate
+from volguard.curate.schemas import QUOTES_NORM, quotes_norm_schema, validate
 
 __all__ = ["RawInputs", "curate_one_snap", "run_curate"]
 
@@ -127,9 +127,7 @@ def curate_one_snap(snap_ts: datetime, raw: RawInputs, cfg: CurateConfig) -> pl.
     estimates = forwards.infer_forwards(windowed, futures, funding, snap_ts, cfg)
 
     # R10.4: report the index_carry fallback count for QC visibility.
-    index_carry = sum(
-        1 for est in estimates.values() if est.method is ForwardMethod.INDEX_CARRY
-    )
+    index_carry = sum(1 for est in estimates.values() if est.method is ForwardMethod.INDEX_CARRY)
     if index_carry:
         logger.info(
             "snap %s: %d/%d expiries used index_carry forward fallback",
@@ -162,7 +160,11 @@ def curate_one_snap(snap_ts: datetime, raw: RawInputs, cfg: CurateConfig) -> pl.
 
     out = kept.select(_OUTPUT_COLUMNS)
     # R10.1/R10.2: pandera boundary validation — raises loudly, names the column.
-    return validate(out, QUOTES_NORM)
+    # Validate against the schema banded by *this* cfg (not the module-level
+    # default), so loosening the IV band in configs/curate.yaml keeps the filter
+    # stage and the boundary contract consistent (a row apply_filters admits
+    # under cfg.iv_max must not then be rejected by a default-banded schema).
+    return validate(out, quotes_norm_schema(cfg))
 
 
 def _log_coverage_gaps(snap_ts: datetime, windowed: pl.DataFrame, kept: pl.DataFrame) -> None:

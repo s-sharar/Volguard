@@ -152,10 +152,7 @@ def normalize_trades(
         _cp_sign(pl.col("cp")).alias("cp_sign"),
     )
 
-    return (
-        out.filter(pl.col("source_ts") <= pl.lit(snap).cast(_TS))
-        .select(CANONICAL_COLUMNS)
-    )
+    return out.filter(pl.col("source_ts") <= pl.lit(snap).cast(_TS)).select(CANONICAL_COLUMNS)
 
 
 def canonical_from_tardis(
@@ -192,9 +189,7 @@ def canonical_from_tardis(
     # committed fixture); attach UTC and normalize both to _TS (ms).
     expiry_epoch = pl.from_epoch(pl.col("expiration"), time_unit="ms").dt.replace_time_zone("UTC")
     source_ts = (
-        pl.from_epoch(pl.col("timestamp"), time_unit="us")
-        .dt.replace_time_zone("UTC")
-        .cast(_TS)
+        pl.from_epoch(pl.col("timestamp"), time_unit="us").dt.replace_time_zone("UTC").cast(_TS)
     )
     expiry = pl.coalesce([expiry_epoch, pl.col("_expiry_parsed")]).cast(_TS)
     cp = pl.coalesce([pl.col("_cp_parsed")]).cast(pl.String)
@@ -226,7 +221,4 @@ def canonical_from_tardis(
         _cp_sign(pl.col("cp")).alias("cp_sign"),
     )
 
-    return (
-        out.filter(pl.col("source_ts") <= pl.lit(snap).cast(_TS))
-        .select(CANONICAL_COLUMNS)
-    )
+    return out.filter(pl.col("source_ts") <= pl.lit(snap).cast(_TS)).select(CANONICAL_COLUMNS)

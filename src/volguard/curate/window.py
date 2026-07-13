@@ -57,8 +57,10 @@ def _any_expiry_sparse(sel: pl.DataFrame, min_trades_per_expiry: int) -> bool:
     Only expiries that actually appear in the selection are considered; an
     expiry with zero trades is not "sparse" here (it has no rows to widen
     toward), and is handled downstream as a coverage gap by the driver (R6.5).
-    An empty selection therefore reports *not* sparse, which stops the widening
-    loop immediately.
+    An empty selection reports *not* sparse; :func:`build_snap_window` widens an
+    empty window separately (a wholly empty base window is the sparse case the
+    widening must recover), so this helper only judges sparsity of the expiries
+    actually present.
     """
     if sel.height == 0:
         return False
@@ -111,8 +113,16 @@ def build_snap_window(
     window = cfg.window_minutes
     sel = _select(trades, snap_ts, window)
 
-    # Widen backward while sparse, capped at max_window_minutes (R6.2, R6.3).
-    while _any_expiry_sparse(sel, cfg.min_trades_per_expiry) and window < cfg.max_window_minutes:
+    # Widen backward while the window is sparse, capped at max_window_minutes
+    # (R6.2, R6.3). An *empty* base window is itself the sparse case the plan's
+    # widening is meant to recover: a snap with no trades in [07:05, 08:05] but
+    # usable trades deeper in the max window must still reach back for them
+    # rather than emit nothing. The max-window cap bounds this, so widening on an
+    # empty selection cannot loop forever — if the whole max window is empty it
+    # stops at the cap and the driver logs a coverage gap (R6.5).
+    while (
+        sel.height == 0 or _any_expiry_sparse(sel, cfg.min_trades_per_expiry)
+    ) and window < cfg.max_window_minutes:
         if cfg.widen_step_minutes <= 0:
             break  # cannot widen further; guarantees termination
         window = min(window + cfg.widen_step_minutes, cfg.max_window_minutes)
@@ -120,10 +130,9 @@ def build_snap_window(
 
     # staleness_s = (snap_ts - source_ts) in seconds, >= 0 by construction
     # since every selected row has source_ts <= snap_ts (design R5.1 / R8.4).
-    staleness_s = (
-        (pl.lit(snap_ts).cast(_TS) - pl.col("source_ts")).dt.total_microseconds().cast(pl.Float64)
-        / 1_000_000.0
-    )
+    staleness_s = (pl.lit(snap_ts).cast(_TS) - pl.col("source_ts")).dt.total_microseconds().cast(
+        pl.Float64
+    ) / 1_000_000.0
     sel = sel.with_columns(staleness_s.alias("staleness_s"))
 
     # Recency weight reuses the trusted filters helper (never reimplemented).

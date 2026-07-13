@@ -77,6 +77,46 @@ def test_dense_base_window_is_not_widened() -> None:
     assert bool((out["staleness_s"] <= 60.0 * 60.0).all())
 
 
+def test_empty_base_window_widens_to_reach_trades() -> None:
+    """R6.2: an empty base window still widens to recover deeper trades.
+
+    A snap with zero trades in the base ``[07:05, 08:05]`` window but usable
+    trades further back within ``max_window_minutes`` must reach back for them
+    rather than emit nothing (the empty base window is itself the sparse case
+    the widening is meant to recover).
+    """
+    cfg = CurateConfig(
+        window_minutes=60,
+        widen_step_minutes=60,
+        max_window_minutes=360,
+        min_trades_per_expiry=3,
+    )
+    # Nothing in the first 60 minutes; three trades sit 90-150 min before snap.
+    rows = [_at(m, expiry=_EXPIRIES[0]) for m in (90.0, 120.0, 150.0)]
+
+    out = build_snap_window(_trades(rows), _SNAP, cfg)
+
+    # Widened past the empty base window to admit all three deeper trades.
+    assert out.height == 3
+    assert bool((out["staleness_s"] <= 180.0 * 60.0).all())
+
+
+def test_wholly_empty_max_window_returns_empty() -> None:
+    """R6.3/R6.5: an empty max window stops at the cap and returns no rows.
+
+    When even the widest window has no trades, widening halts at the cap and the
+    builder emits an empty frame (the driver logs the coverage gap downstream)
+    rather than looping forever.
+    """
+    cfg = CurateConfig(window_minutes=60, widen_step_minutes=60, max_window_minutes=120)
+    # The only trade is older than the 120-minute cap.
+    rows = [_at(200.0, expiry=_EXPIRIES[0])]
+
+    out = build_snap_window(_trades(rows), _SNAP, cfg)
+
+    assert out.height == 0
+
+
 def test_sparse_base_window_widens_step_by_step() -> None:
     """R6.2: a sparse base window widens backward to admit older trades.
 
@@ -152,9 +192,7 @@ def _frame(rows: list[_TradeTuple]) -> pl.DataFrame:
     return pl.DataFrame(
         {
             "expiry": pl.Series([_EXPIRIES[r[0]] for r in rows], dtype=_TS),
-            "source_ts": pl.Series(
-                [_SNAP - timedelta(seconds=r[1]) for r in rows], dtype=_TS
-            ),
+            "source_ts": pl.Series([_SNAP - timedelta(seconds=r[1]) for r in rows], dtype=_TS),
         }
     )
 

@@ -244,10 +244,9 @@ def mad_outlier_mask(w: pl.Series, expiry: pl.Series, multiplier: float) -> pl.S
     scored = (
         with_dev.join(mad, on="_expiry", how="left")
         .with_columns(
-            (
-                pl.col("_w").is_finite()
-                & (pl.col("_absdev") > (multiplier * pl.col("_mad")))
-            ).alias("_outlier")
+            (pl.col("_w").is_finite() & (pl.col("_absdev") > (multiplier * pl.col("_mad")))).alias(
+                "_outlier"
+            )
         )
         .sort("_idx")
     )
@@ -271,9 +270,7 @@ _HARD_REJECT_MASK: int = (
 def _flag_when(pred: pl.Expr, flag: QualityFlag) -> pl.Expr:
     """A per-row Int64 expr equal to ``int(flag)`` where ``pred`` holds, else 0."""
     return (
-        pl.when(pred)
-        .then(pl.lit(int(flag), dtype=pl.Int64))
-        .otherwise(pl.lit(0, dtype=pl.Int64))
+        pl.when(pred).then(pl.lit(int(flag), dtype=pl.Int64)).otherwise(pl.lit(0, dtype=pl.Int64))
     )
 
 
@@ -327,14 +324,11 @@ def apply_filters(rows: pl.DataFrame, snap_ts: datetime, cfg: CurateConfig) -> p
     cascade — or tightening any band — never re-admits a previously rejected row.
     """
     had_flags = "quality_flags" in rows.columns
-    base_flags = (
-        pl.col("quality_flags").cast(pl.Int64) if had_flags else pl.lit(0, dtype=pl.Int64)
-    )
+    base_flags = pl.col("quality_flags").cast(pl.Int64) if had_flags else pl.lit(0, dtype=pl.Int64)
 
-    staleness_s = (
-        (pl.lit(snap_ts).cast(_TS) - pl.col("source_ts")).dt.total_microseconds().cast(pl.Float64)
-        / 1_000_000.0
-    )
+    staleness_s = (pl.lit(snap_ts).cast(_TS) - pl.col("source_ts")).dt.total_microseconds().cast(
+        pl.Float64
+    ) / 1_000_000.0
 
     # Delta needs the scalar M1 pricer; compute it first so the band predicate
     # below is a plain vectorized column comparison.
@@ -372,8 +366,7 @@ def apply_filters(rows: pl.DataFrame, snap_ts: datetime, cfg: CurateConfig) -> p
     mad_mask = mad_outlier_mask(stage["w"], stage["expiry"], cfg.mad_multiplier)
     stage = stage.with_columns(mad_mask.alias("_mad_outlier")).with_columns(
         (
-            pl.col("quality_flags")
-            | _flag_when(pl.col("_mad_outlier"), QualityFlag.MAD_OUTLIER)
+            pl.col("quality_flags") | _flag_when(pl.col("_mad_outlier"), QualityFlag.MAD_OUTLIER)
         ).alias("quality_flags")
     )
 

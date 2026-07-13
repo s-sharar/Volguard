@@ -111,9 +111,7 @@ def test_run_tardis_keeps_only_parquet(tmp_path, monkeypatch) -> None:
     def handler(request: httpx.Request) -> httpx.Response:
         return httpx.Response(200, content=_gz_bytes())
 
-    monkeypatch.setattr(
-        "volguard.ingest.tardis_free.httpx.Client", _mock_client_factory(handler)
-    )
+    monkeypatch.setattr("volguard.ingest.tardis_free.httpx.Client", _mock_client_factory(handler))
     cfg = DataConfig(raw_dir=tmp_path)
     run_tardis(cfg, start="2022-04-01", end="2022-04-01")
 
@@ -131,9 +129,7 @@ def test_run_tardis_skips_converted_day_without_download(tmp_path, monkeypatch) 
         requests["n"] += 1
         return httpx.Response(200, content=_gz_bytes())
 
-    monkeypatch.setattr(
-        "volguard.ingest.tardis_free.httpx.Client", _mock_client_factory(handler)
-    )
+    monkeypatch.setattr("volguard.ingest.tardis_free.httpx.Client", _mock_client_factory(handler))
     cfg = DataConfig(raw_dir=tmp_path)
     # Seed an already-converted day.
     part = tmp_path / "tardis_chain" / "date=2022-04-01" / "part.parquet"

@@ -102,9 +102,7 @@ def _empty_futures_lf() -> pl.LazyFrame:
 
 
 def _empty_funding_lf() -> pl.LazyFrame:
-    return pl.LazyFrame(
-        schema={"ts": _TS, "interest_1h": pl.Float64, "interest_8h": pl.Float64}
-    )
+    return pl.LazyFrame(schema={"ts": _TS, "interest_1h": pl.Float64, "interest_8h": pl.Float64})
 
 
 def _empty_instruments_lf() -> pl.LazyFrame:
@@ -133,18 +131,37 @@ def _well_formed_raw(
         for strike in strikes:
             call = black76_price(f_star, strike, tau, sigma, cp=1)
             put = black76_price(f_star, strike, tau, sigma, cp=-1)
-            rows.append(
-                _option_row(ts, expiry, strike, "C", call / _INDEX, sigma * 100.0, amount)
-            )
-            rows.append(
-                _option_row(ts, expiry, strike, "P", put / _INDEX, sigma * 100.0, amount)
-            )
+            rows.append(_option_row(ts, expiry, strike, "C", call / _INDEX, sigma * 100.0, amount))
+            rows.append(_option_row(ts, expiry, strike, "P", put / _INDEX, sigma * 100.0, amount))
     return RawInputs(
         options=_options_lf(rows),
         futures=_empty_futures_lf(),
         funding=_empty_funding_lf(),
         instruments=_empty_instruments_lf(),
     )
+
+
+def test_loosened_iv_band_config_is_honored_end_to_end() -> None:
+    """R10.1: the boundary validation bands iv_obs from the active cfg.
+
+    A high-vol snap (sigma above the default iv_max=5.0) run under a cfg that
+    loosens iv_max must curate successfully — the filter stage and the pandera
+    boundary contract both use the supplied cfg, so a row apply_filters admits
+    is never rejected by a default-banded schema.
+    """
+    cfg = CurateConfig(iv_max=10.0)
+    sigma = 6.0  # 600 vol pts: inside cfg.iv_max=10.0 but above the default 5.0
+    strikes = [45_000.0, 46_000.0]
+    raw = _well_formed_raw(45_000.0, sigma, strikes, [_EXPIRY])
+
+    out = curate_one_snap(_SNAP, raw, cfg)
+    assert out.height > 0
+    assert bool((out["iv_obs"] > 5.0).any())  # a row above the default band survived
+
+    # The same snap under the default cfg rejects those rows (empty output),
+    # confirming the band is what differs — not the inputs.
+    default_out = curate_one_snap(_SNAP, raw, _CFG)
+    assert default_out.height == 0
 
 
 # --- CP7: quotes_norm schema invariants ------------------------------------
@@ -268,8 +285,7 @@ def test_empty_expiry_cell_logs_coverage_warning(caplog: pytest.LogCaptureFixtur
     # The small-size expiry survives in the window but not the curated output.
     assert _EXPIRY2 not in set(out["expiry"].unique().to_list())
     assert any(
-        "coverage gap" in rec.message and rec.levelno == logging.WARNING
-        for rec in caplog.records
+        "coverage gap" in rec.message and rec.levelno == logging.WARNING for rec in caplog.records
     )
 
 

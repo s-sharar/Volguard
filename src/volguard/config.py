@@ -130,9 +130,7 @@ class CurateConfig(BaseModel):
     def _check_bands_and_positivity(self) -> CurateConfig:
         """Reject invalid band ordering, non-positive knobs, and window bounds."""
         if not self.delta_min < self.delta_max:
-            raise ValueError(
-                f"delta_min ({self.delta_min}) must be < delta_max ({self.delta_max})"
-            )
+            raise ValueError(f"delta_min ({self.delta_min}) must be < delta_max ({self.delta_max})")
         if not self.iv_min < self.iv_max:
             raise ValueError(f"iv_min ({self.iv_min}) must be < iv_max ({self.iv_max})")
         if self.delta_min <= 0 or self.delta_max <= 0:
