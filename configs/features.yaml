@@ -1,0 +1,20 @@
+# M5 daily feature and supervised-dataset contract.
+realized_horizons_days: [1, 5, 22]
+dvol_change_days: 5
+jump_lookback_days: 22
+jump_sigma_threshold: 3.0
+ohlc_max_age_s: 7200.0
+dvol_max_age_s: 7200.0
+funding_max_age_s: 43200.0
+basis_max_age_s: 86400.0
+oi_max_age_s: 86400.0
+basis_target_days: 30
+basis_min_days: 7
+pca_components: 3
+lookback_days: 20
+forecast_horizon_days: 1
+model_domain_calendar_points: 9
+quality_n_obs_reference: 5
+quality_interp_weight: 0.5
+quality_extrap_weight: 0.0
+quality_rmse_half_life: 0.05

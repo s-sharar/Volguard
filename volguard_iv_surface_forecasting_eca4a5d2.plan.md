@@ -21,7 +21,7 @@ todos:
     content: "M4: Surface pipeline — SVI fits + calendar ordering + grids + QC dashboard → surfaces_daily full history"
     status: pending
   - id: m5-features
-    content: "M5: Features + walk-forward splits + leakage tests"
+    content: "M5: Raw-surface features + model-domain QC/reliability + walk-forward splits + leakage tests"
     status: pending
   - id: m6-baselines
     content: "M6: Eval harness + baselines B0–B4 through full metric suite; first results"
@@ -161,7 +161,7 @@ Fallback/upgrade: one paid Tardis month (~$450) would backfill dense quotes 4 mo
 - `ref/instruments`: instrument, expiry_ts, strike, cp, creation_ts
 - `curated/quotes_norm` (canonical obs): snap_ts, expiry, tau, strike, cp, F, k=ln(K/F), iv_obs, iv_source (trade/mark/mid), usd_premium, size, staleness_s, quality_flags
 - `curated/surfaces_daily`: snap_date, per-tenor SVI params (a,b,ρ,m,σ) + fit diagnostics (rmse, n_obs, vega_sum), grid tensor w[tenor, moneyness] with per-cell provenance (n_obs, interp_flag), arb metrics pre/post
-- `features/daily`: RV_1/5/22d (Parkinson), returns, jump flag, DVOL, futures basis, funding, OI totals, P/C volume ratio, ATM term slope, 25Δ skew proxies, PCA factors (train-window-fit only), calendar vars
+- `features/daily`: ordered raw 6×9 grid values/provenance, model-domain surface-QC diagnostics and reliability weights, RV_1/5/22d (Parkinson + Garman–Klass), returns, jump flag, DVOL + 5d change, futures basis, funding, OI totals, P/C volume ratio, ATM/skew/curvature/term features, IV−RV spreads, calendar vars, and source-timestamp lineage. PCA scores are fold-local dataset features fitted on each fold's training grids, not globally persisted daily columns.
 - `experiments/runs` registry + `metrics` long table (run_id, fold, metric, bucket, value)
 
 ## 7. Surface construction plan
@@ -174,14 +174,17 @@ Fallback/upgrade: one paid Tardis month (~$450) would backfill dense quotes 4 mo
 - **Canonical representation = fitted SVI params per tenor** (continuous surface). Grids are derived views: model I/O grid on standardized moneyness d = k/(σ_atm√τ) ∈ {-2,…,+2} (9 pts) × tenor {7,14,30,60,90,180}d (6 pts); arb checks/penalties evaluated in fixed-k coordinates (mapped via forecast ATM vol) — this coordinate subtlety is a documented design decision.
 - **QC dashboard**: daily fit RMSE, coverage heatmap, arb-violation base rate *of the market itself* (nonzero! — interesting memo material), method-fallback counts.
 
+M4's butterfly/calendar penalties are best-effort soft enforcement. Residual fitted-surface violations, including far-wing SVI diagnostics, are recorded honestly and do not imply that a structurally valid model-grid day is unusable. M4 market surfaces are not repaired into the canonical training target; the universal repair QP remains a post-forecast comparison in M6/M7.
+
 ## 8. Feature engineering plan
 
-- **Surface state**: grid w values (the autoregressive core), ATM IV by tenor, skew = iv(d=-1)−iv(d=+1), curvature = wings−ATM, term slope, top-3 PCA factor scores (PCA fit on train window only, frozen per fold).
-- **Underlying**: multi-horizon realized vol (Parkinson/GK from OHLC), overnight return, |ret|>3σ jump flag, high-low range.
-- **Deribit-native**: DVOL level + 5d change, annualized futures basis, perp funding, aggregate OI, put/call volume ratio, options volume.
+- **Surface state**: grid w values (the autoregressive core), ATM IV by tenor, interpolated 25Δ put-minus-call skew, curvature = wings−ATM, annualized term slope, top-3 PCA factor scores (PCA fit on train window only, frozen per fold).
+- **Underlying**: multi-horizon realized vol (Parkinson/GK from OHLC), log return, prior-22-day |ret|>3σ jump flag, high-low range. Hourly candles become available only at `bar_ts + resolution`; all reads and joins are backward/as-of.
+- **Deribit-native**: DVOL level + 5d change, annualized futures basis, perp funding, aggregate OI, put/call volume ratio, options volume. Unavailable or stale basis/OI remain null with explicit availability, age, and source-timestamp lineage.
 - **Calendar**: day-of-week, days-to-next-monthly/quarterly-expiry.
 - **IV−RV spread** (variance-risk-premium proxy) per tenor.
 - **Leakage rule**: every feature row carries a max-source-timestamp column; an automated test asserts it ≤ snap time.
+- **Surface admission and reliability**: M5 hard-rejects only malformed model tensors (wrong axes/signature, not exactly 54 unique cells, missing essential provenance, or nonfinite/negative values). Nonzero M4 post-fit counts, soft-certification failures, fit RMSE, weak support, interpolation/extrapolation, and model-domain arbitrage magnitude are persisted as quality diagnostics rather than deleting the date. Model-domain butterfly checks use each tenor's native `grid_k`; adjacent-tenor calendar checks interpolate only over pairwise shared fixed-k overlap and never extrapolate. Raw grids remain the autoregressive state and next-day target; supervised windows carry input-quality channels and per-cell target reliability weights so soft-QC dates preserve calendar continuity.
 
 ## 9. Baseline modeling plan (the bar to clear)
 
@@ -210,7 +213,7 @@ Build the **checker first** (it is used in 4 places): data QC on market surfaces
 
 ## 12. Walk-forward evaluation plan
 
-- History ≈ 2021-01 → present (~4.5y daily surfaces). **Expanding window**: initial train 18mo → val = last 2mo of train (early stopping) → test 2mo; step 2mo → ~15+ folds.
+- History ≈ 2021-01 → present (~4.5y daily surfaces). **Expanding window**: initial 18mo span = 16mo fit + a final 2mo validation tail (early stopping) → test 2mo; step 2mo → ~15+ folds.
 - Hyperparams frozen after fold 2; models refit each fold; 3 seeds.
 - **Metrics**: vega-weighted RMSE/MAE in IV and in w; per-bucket (tenor × moneyness) error heatmaps; skill vs. B0 = 1 − MSE/MSE_B0; arb-violation rate & magnitude raw/repaired; Diebold-Mariano significance vs. B0; CRPS if probabilistic.
 - Report per-fold distributions, split by regime (calm vs. DVOL>p80 stress) — regime dependence of skill is a headline memo figure.
@@ -264,7 +267,7 @@ volguard/
 - **M2 Ingestion**: history-API puller (resumable, throttled), Tardis free downloader, underlying/DVOL pullers → `raw/` complete backfill.
 - **M3 Curation**: normalize → forwards → IV cross-check → filters → `curated/quotes_norm`; validation notebook vs. Tardis free days.
 - **M4 Surfaces**: SVI fitting pipeline + QC dashboard → `curated/surfaces_daily` for full history; golden-day regression test.
-- **M5 Features + datasets**: feature builder, walk-forward splitter, leakage tests.
+- **M5 Features + datasets**: raw-grid feature builder, structural admission, model-domain QC/reliability metadata, weighted supervised windows, walk-forward splitter, leakage tests.
 - **M6 Baselines + eval harness**: B0–B4 through full metric suite; first results tables. *Harness before ML.*
 - **M7 ML models**: Model A, penalties, ablation runner; Model B constrained decoder; repair-layer comparisons.
 - **M8 Economic evaluation**: cost model from Tardis spreads, T1 hedging, T2 RV backtest, risk gates.
@@ -314,7 +317,7 @@ Critical path: M0 → M1 → M3 → M4 → M5 → M6 → M7 → M8 → M10. WS-C
 - **Unit**: Black-76 price↔IV round-trip; put-call parity; vega>0; SVI eval vs. hand-computed values; checker on hand-crafted violating and clean surfaces; repair QP is identity on arb-free input.
 - **Property (hypothesis)**: IV solver converges ∀ valid random inputs; repaired surfaces always pass checker; SVI fits on random valid-param synthetic smiles recover params; grid interpolation preserves calendar ordering.
 - **Golden**: one committed Tardis free day → full pipeline → surface snapshot compared with tolerances (regression test for the whole stack).
-- **Data QC gates**: pandera schemas at every stage boundary; daily coverage assertions.
+- **Data QC gates**: pandera schemas at every stage boundary; daily coverage assertions; structural M5 rejection separated from soft surface-quality warnings; model-domain calendar checks never extrapolate beyond adjacent-tenor shared-k support.
 - **Leakage tests**: max-source-timestamp ≤ snap time; split-overlap assertions; PCA-fit-window assertions.
 - **Backtest sanity**: persistence forecast + zero costs ⇒ ≈0 PnL for spread trades; costs strictly reduce PnL; deterministic toy scenario with known outcome.
 - **CI**: ruff + pyright + unit/property/golden on fixtures per push.
