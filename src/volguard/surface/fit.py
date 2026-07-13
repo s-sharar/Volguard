@@ -25,6 +25,9 @@ from volguard.surface.svi import SVIParams, svi_g, svi_total_variance
 FloatArray = NDArray[np.float64]
 
 _MIN_OBS_FOR_FIT = 5
+# Clamp rho just inside the open interval (-1, 1): np.tanh saturates to exactly
+# +/-1.0 in float64, which SVIParams' strict domain rejects.
+_RHO_BOUND = 1.0 - 1e-9
 # SVI is a continuous smile: once params are stored, downstream code prices
 # arbitrary strikes, so butterfly checks must not miss arbitrage between quotes.
 # Two scales matter. Far wings: a fixed wide range (±5 log-moneyness, K/F in
@@ -118,7 +121,12 @@ def _unpack(theta: np.ndarray) -> SVIParams:
     a_raw, b_raw, rho_raw, m, sigma_raw = theta
     b = np.log1p(np.exp(-abs(b_raw))) + max(b_raw, 0.0)  # numerically stable softplus
     sigma = np.log1p(np.exp(-abs(sigma_raw))) + max(sigma_raw, 0.0) + 1e-6
-    rho = np.tanh(rho_raw)
+    # tanh saturates to exactly +/-1.0 in float64 once |rho_raw| exceeds ~19, but
+    # SVIParams requires the strict open interval -1 < rho < 1. The optimizer can
+    # reach that saturation zone on steep real skews, so clamp just inside the
+    # interval to keep the reparameterization in the valid domain (this only bites
+    # at the boundary; interior fits are unchanged).
+    rho = float(np.clip(np.tanh(rho_raw), -_RHO_BOUND, _RHO_BOUND))
     wing = b * sigma * np.sqrt(1.0 - rho * rho)
     # a_raw parameterizes the slack above the wing lower bound.
     slack = np.log1p(np.exp(-abs(a_raw))) + max(a_raw, 0.0)
