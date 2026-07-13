@@ -7,19 +7,11 @@ which is what the parallel-agent workstreams in the plan rely on.
 
 from __future__ import annotations
 
-from itertools import pairwise
 from pathlib import Path
 from typing import Any
 
 import yaml
 from pydantic import BaseModel, Field, model_validator
-
-# Raw-SVI has five free parameters, so a slice needs at least five points to fit
-# (matches the floor in ``surface/fit.py``); a snap needs two expiries for any
-# calendar structure; convexity checks need at least three strikes.
-_RAW_SVI_MIN_OBS = 5
-_MIN_CALENDAR_EXPIRIES = 2
-_MIN_ARB_POINTS = 3
 
 # Repo root = three levels up from this file: src/volguard/config.py -> repo/
 REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -80,13 +72,7 @@ class DataConfig(BaseModel):
 
 
 class SurfaceConfig(BaseModel):
-    """Surface-construction parameters (snap time, filters, SVI fit).
-
-    Carries the M4 fitting/fallback knobs on top of the snap time, bands, and
-    output grids: the per-slice observation floors that route between raw-SVI
-    and the SSVI fallback, the butterfly reject-and-refit penalties, the
-    calendar-ordering penalty, and the fixed-k grid used for arbitrage checks.
-    """
+    """Surface-construction parameters (snap time, filters, SVI fit)."""
 
     snap_hour_utc: int = 8
     snap_minute_utc: int = 5
@@ -99,71 +85,6 @@ class SurfaceConfig(BaseModel):
     moneyness_grid: list[float] = Field(
         default_factory=lambda: [-2, -1.5, -1, -0.5, 0, 0.5, 1, 1.5, 2]
     )
-
-    # Fitting / fallback knobs (M4).
-    min_obs_svi: int = 5  # below this -> SSVI fallback (>= fit.py floor of 5)
-    min_obs_slice: int = 3  # below this -> skip the expiry entirely
-    min_expiries_per_snap: int = 2  # below this -> skip the snap (no calendar structure)
-    butterfly_penalty: float = 10.0  # initial soft penalty (fit.py default)
-    butterfly_penalty_escalation: float = 10.0  # multiply penalty on reject-refit
-    max_refit_attempts: int = 3
-    calendar_penalty: float = 10.0  # weight on w_j(k) < w_{j-1}(k) crossings
-    arb_check_k_min: float = -2.0  # fixed-k grid bounds for surface arb checks
-    arb_check_k_max: float = 2.0
-    arb_check_points: int = 9  # shared calendar k-grid resolution
-
-    @model_validator(mode="after")
-    def _check_surface_knobs(self) -> SurfaceConfig:
-        """Reject invalid observation floors, penalties, and grid definitions."""
-        if self.min_obs_svi < _RAW_SVI_MIN_OBS:
-            raise ValueError(
-                f"min_obs_svi ({self.min_obs_svi}) must be >= {_RAW_SVI_MIN_OBS} "
-                "(raw-SVI needs 5 points)"
-            )
-        if self.min_obs_slice > self.min_obs_svi:
-            raise ValueError(
-                f"min_obs_slice ({self.min_obs_slice}) must be <= min_obs_svi ({self.min_obs_svi})"
-            )
-        if self.min_expiries_per_snap < _MIN_CALENDAR_EXPIRIES:
-            raise ValueError(
-                f"min_expiries_per_snap ({self.min_expiries_per_snap}) must be "
-                f">= {_MIN_CALENDAR_EXPIRIES}"
-            )
-        if self.max_refit_attempts < 1:
-            raise ValueError(f"max_refit_attempts ({self.max_refit_attempts}) must be >= 1")
-        if self.butterfly_penalty <= 0:
-            raise ValueError(f"butterfly_penalty ({self.butterfly_penalty}) must be > 0")
-        if self.butterfly_penalty_escalation <= 1:
-            raise ValueError(
-                f"butterfly_penalty_escalation ({self.butterfly_penalty_escalation}) must be > 1"
-            )
-        if self.calendar_penalty < 0:
-            raise ValueError(f"calendar_penalty ({self.calendar_penalty}) must be >= 0")
-        if not self.arb_check_k_min < self.arb_check_k_max:
-            raise ValueError(
-                f"arb_check_k_min ({self.arb_check_k_min}) must be "
-                f"< arb_check_k_max ({self.arb_check_k_max})"
-            )
-        if self.arb_check_points < _MIN_ARB_POINTS:
-            raise ValueError(
-                f"arb_check_points ({self.arb_check_points}) must be >= {_MIN_ARB_POINTS} "
-                "(convexity needs 3 strikes)"
-            )
-        self._check_grids()
-        return self
-
-    def _check_grids(self) -> None:
-        """Reject empty/non-monotonic tenor and moneyness grids."""
-        if not self.tenor_grid_days:
-            raise ValueError("tenor_grid_days must be non-empty")
-        if any(t <= 0 for t in self.tenor_grid_days):
-            raise ValueError(f"tenor_grid_days ({self.tenor_grid_days}) must be strictly positive")
-        if any(b <= a for a, b in pairwise(self.tenor_grid_days)):
-            raise ValueError(
-                f"tenor_grid_days ({self.tenor_grid_days}) must be strictly increasing"
-            )
-        if any(b <= a for a, b in pairwise(self.moneyness_grid)):
-            raise ValueError(f"moneyness_grid ({self.moneyness_grid}) must be strictly increasing")
 
 
 class CurateConfig(BaseModel):
