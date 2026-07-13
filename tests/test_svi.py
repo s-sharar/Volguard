@@ -7,7 +7,7 @@ import pytest
 from hypothesis import given, settings
 from hypothesis import strategies as st
 
-from volguard.surface.fit import _minimum_svi_g, fit_svi_slice
+from volguard.surface.fit import _minimum_svi_g, _unpack, fit_svi_slice
 from volguard.surface.svi import (
     SVIParams,
     svi_derivatives,
@@ -46,6 +46,30 @@ def test_params_reject_nonfinite() -> None:
             SVIParams(a=0.04, b=0.1, rho=0.0, m=bad, sigma=0.1)
         with pytest.raises(ValueError, match="finite"):
             SVIParams(a=0.04, b=0.1, rho=0.0, m=0.0, sigma=bad)
+
+
+@settings(max_examples=300, deadline=None)
+@given(rho_raw=st.floats(min_value=-200.0, max_value=200.0, allow_nan=False))
+def test_unpack_rho_stays_in_open_interval(rho_raw: float) -> None:
+    """Regression: the optimizer can drive ``rho_raw`` into the ``tanh`` saturation
+    zone where ``np.tanh`` returns exactly +/-1.0 in float64, which ``SVIParams``'
+    strict ``-1 < rho < 1`` domain rejects (crashed the M4 full-history run).
+    ``_unpack`` must always yield a constructible slice with ``|rho| < 1``.
+    """
+    params = _unpack(np.array([0.5, 0.1, rho_raw, 0.0, 0.1]))
+    assert -1.0 < params.rho < 1.0
+
+
+def test_fit_steep_skew_slice_does_not_crash() -> None:
+    """A steep-skew slice (large fitted ``rho``) must fit without hitting the
+    ``tanh`` saturation ValueError; the returned params stay in the SVI domain.
+    """
+    k = np.linspace(-0.6, 0.6, 9)
+    # Strong monotone skew: far-left IV much higher than far-right (large |rho|).
+    iv = np.linspace(1.4, 0.35, 9)
+    result = fit_svi_slice(k, iv, tau=0.05, vega=np.ones_like(k))
+    assert -1.0 < result.params.rho < 1.0
+    assert result.params.sigma > 0.0
 
 
 @settings(max_examples=200, deadline=None)
