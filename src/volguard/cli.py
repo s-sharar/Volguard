@@ -15,7 +15,7 @@ from rich.console import Console
 
 from volguard import __version__
 from volguard.collector.poller import run_forever
-from volguard.config import CollectorConfig, CurateConfig, DataConfig, load_config
+from volguard.config import CollectorConfig, CurateConfig, DataConfig, SurfaceConfig, load_config
 
 _INGEST_SOURCES = ("deribit-history", "tardis", "underlying", "all")
 
@@ -96,9 +96,20 @@ def curate(
 
 
 @app.command(name="build-surfaces")
-def build_surfaces() -> None:
-    """Layer 2 — fit SVI surfaces and write ``data/curated/surfaces_daily`` (M4)."""
-    _todo("build-surfaces")
+def build_surfaces(
+    start: str | None = typer.Option(None, help="Override start date (YYYY-MM-DD)."),
+    end: str | None = typer.Option(None, help="Override end date (YYYY-MM-DD)."),
+) -> None:
+    """Layer 2 — fit SVI surfaces + grids + QC → curated/surfaces_daily (M4)."""
+    logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s %(message)s")
+    # Imported lazily so the CLI (and its --help tree / tests) load without the
+    # surface stack being importable-heavy (matches the ``curate`` pattern).
+    from volguard.surface import pipeline  # noqa: PLC0415
+
+    data_cfg = load_config("data", DataConfig)
+    surface_cfg = load_config("surface", SurfaceConfig)
+    console.print("[green]build-surfaces[/green]: building curated/surfaces_daily")
+    pipeline.run_build_surfaces(surface_cfg, data_cfg, start=start, end=end)
 
 
 @app.command()
