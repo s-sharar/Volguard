@@ -1,0 +1,27 @@
+# Layer 1 curation config (M3).
+# Snap just after 08:00 UTC settlement (plan section 7).
+snap_hour_utc: 8
+snap_minute_utc: 5
+
+# Snap window: base [07:05, 08:05], widen backward when a cell is sparse.
+window_minutes: 60
+widen_step_minutes: 60
+max_window_minutes: 360
+min_trades_per_expiry: 4
+recency_half_life_s: 900.0
+
+# Three-tier forward inference.
+pcp_pair_window_s: 60.0
+min_pcp_pairs: 1
+
+# Quality filter bands (mirror surface.yaml defaults).
+tau_min_days: 2.0
+delta_min: 0.02
+delta_max: 0.98
+iv_min: 0.01
+iv_max: 5.0
+mad_multiplier: 5.0
+min_size_btc: 0.1
+
+# IV recompute cross-check tolerance (2 vol points, fraction units).
+iv_divergence_tol: 0.02

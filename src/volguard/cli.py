@@ -15,7 +15,7 @@ from rich.console import Console
 
 from volguard import __version__
 from volguard.collector.poller import run_forever
-from volguard.config import CollectorConfig, DataConfig, load_config
+from volguard.config import CollectorConfig, CurateConfig, DataConfig, load_config
 
 _INGEST_SOURCES = ("deribit-history", "tardis", "underlying", "all")
 
@@ -76,6 +76,23 @@ def ingest(
     if source in ("underlying", "all"):
         console.print("[green]ingest[/green]: underlying OHLC/DVOL/funding")
         asyncio.run(underlying.run_underlying(cfg, start=start, end=end))
+
+
+@app.command()
+def curate(
+    start: str | None = typer.Option(None, help="Override start date (YYYY-MM-DD)."),
+    end: str | None = typer.Option(None, help="Override end date (YYYY-MM-DD)."),
+) -> None:
+    """Layer 1 — normalize → forwards → IV cross-check → filters → curated/quotes_norm (M3)."""
+    logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s %(message)s")
+    # Imported lazily so the CLI (and its --help tree / tests) load without the
+    # curation stack being importable-heavy (matches the ``ingest`` pattern).
+    from volguard.curate import pipeline  # noqa: PLC0415
+
+    data_cfg = load_config("data", DataConfig)
+    curate_cfg = load_config("curate", CurateConfig)
+    console.print("[green]curate[/green]: building curated/quotes_norm")
+    pipeline.run_curate(curate_cfg, data_cfg, start=start, end=end)
 
 
 @app.command(name="build-surfaces")

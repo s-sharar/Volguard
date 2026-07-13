@@ -14,6 +14,7 @@ from volguard.ingest.tardis_free import (
     download_free_day,
     gz_to_parquet,
     iter_first_days,
+    run_tardis,
 )
 
 FIXTURE = Path(__file__).parent / "fixtures" / "tardis_sample.csv"
@@ -87,3 +88,55 @@ def test_download_free_day_tolerates_404(tmp_path) -> None:
     cfg = DataConfig(raw_dir=tmp_path)
     client = httpx.Client(transport=httpx.MockTransport(handler), timeout=5.0)
     assert download_free_day(client, cfg, date(2018, 1, 1)) is None
+
+
+def _mock_client_factory(handler):
+    """A `httpx.Client(**kwargs)` replacement bound to a MockTransport.
+
+    Captures the real ``httpx.Client`` up front so the returned factory does not
+    re-enter the patched attribute (which would recurse infinitely).
+    """
+    real_client = httpx.Client
+
+    def factory(**_kwargs):
+        return real_client(transport=httpx.MockTransport(handler), timeout=5.0)
+
+    return factory
+
+
+def test_run_tardis_keeps_only_parquet(tmp_path, monkeypatch) -> None:
+    # After a successful convert only the Parquet part should remain on disk —
+    # the ~1 GB gzip is transient and must be deleted to keep the raw layer
+    # Parquet-only (the sole artifact downstream stages read).
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, content=_gz_bytes())
+
+    monkeypatch.setattr("volguard.ingest.tardis_free.httpx.Client", _mock_client_factory(handler))
+    cfg = DataConfig(raw_dir=tmp_path)
+    run_tardis(cfg, start="2022-04-01", end="2022-04-01")
+
+    day_dir = tmp_path / "tardis_chain" / "date=2022-04-01"
+    assert (day_dir / "part.parquet").exists()
+    assert list(day_dir.glob("*.gz")) == []  # gzip cleaned up after conversion
+
+
+def test_run_tardis_skips_converted_day_without_download(tmp_path, monkeypatch) -> None:
+    # A day that already has a Parquet part must not trigger a re-download of the
+    # gzip (bandwidth + disk waste); the parquet is the source of truth.
+    requests = {"n": 0}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        requests["n"] += 1
+        return httpx.Response(200, content=_gz_bytes())
+
+    monkeypatch.setattr("volguard.ingest.tardis_free.httpx.Client", _mock_client_factory(handler))
+    cfg = DataConfig(raw_dir=tmp_path)
+    # Seed an already-converted day.
+    part = tmp_path / "tardis_chain" / "date=2022-04-01" / "part.parquet"
+    part.parent.mkdir(parents=True)
+    seed_gz = tmp_path / "seed.csv.gz"
+    seed_gz.write_bytes(_gz_bytes())
+    gz_to_parquet(seed_gz, part)
+
+    run_tardis(cfg, start="2022-04-01", end="2022-04-01")
+    assert requests["n"] == 0  # no download attempted for the converted day
