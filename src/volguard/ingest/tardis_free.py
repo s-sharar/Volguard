@@ -153,15 +153,23 @@ def run_tardis(cfg: DataConfig, *, start: str | None = None, end: str | None = N
     downloaded = 0
     with httpx.Client(timeout=cfg.request_timeout_s, follow_redirects=True) as client:
         for d in iter_first_days(start_date, end_date):
+            parquet_path = _day_dir(cfg, d) / "part.parquet"
+            # The Parquet part is the only artifact downstream stages read, so a
+            # day that is already converted needs neither a re-download nor a
+            # re-convert -- skip it before spending bandwidth on the ~1 GB gzip.
+            if parquet_path.exists():
+                log.info("tardis %s: already converted", d)
+                downloaded += 1
+                continue
             gz_path = download_free_day(client, cfg, d)
             if gz_path is None:
                 log.info("tardis %s: unavailable (404)", d)
                 continue
-            parquet_path = _day_dir(cfg, d) / "part.parquet"
-            if not parquet_path.exists():
-                rows = gz_to_parquet(gz_path, parquet_path)
-                log.info("tardis %s: %d rows", d, rows)
-            else:
-                log.info("tardis %s: already converted", d)
+            rows = gz_to_parquet(gz_path, parquet_path)
+            # The gzip is a transient download artifact; once the Parquet part is
+            # written it is pure dead weight (~1 GB/day), so drop it to keep the
+            # raw layer Parquet-only. It is re-downloadable from Tardis if needed.
+            gz_path.unlink(missing_ok=True)
+            log.info("tardis %s: %d rows", d, rows)
             downloaded += 1
     log.info("tardis done: %d free days available", downloaded)
