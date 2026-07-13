@@ -155,6 +155,27 @@ def normalize_trades(
     return out.filter(pl.col("source_ts") <= pl.lit(snap).cast(_TS)).select(CANONICAL_COLUMNS)
 
 
+def _latest_quote_per_instrument(canonical: pl.DataFrame) -> pl.DataFrame:
+    """Collapse a tick-level quote chain to the last quote per instrument.
+
+    A Tardis free-day file is the *full* day of chain updates, so after the
+    leakage filter an instrument that ticked many times before the snap still
+    contributes one row per tick. Averaging those in the validation pass would
+    mix stale intraday marks with the snap quote and overweight chatty
+    instruments, so keep only the most recent ``source_ts`` per
+    ``(expiry, strike, cp)`` — the actual snapshot quote. Ties on ``source_ts``
+    are broken deterministically by ``iv_trade`` so the result is byte-stable.
+    """
+    if canonical.height == 0:
+        return canonical
+    return (
+        canonical.sort(["expiry", "strike", "cp", "source_ts", "iv_trade"])
+        .group_by(["expiry", "strike", "cp"], maintain_order=True)
+        .last()
+        .select(CANONICAL_COLUMNS)
+    )
+
+
 def canonical_from_tardis(
     chain: pl.LazyFrame,
     snap_ts: datetime,
@@ -221,4 +242,10 @@ def canonical_from_tardis(
         _cp_sign(pl.col("cp")).alias("cp_sign"),
     )
 
-    return out.filter(pl.col("source_ts") <= pl.lit(snap).cast(_TS)).select(CANONICAL_COLUMNS)
+    leakage_safe = out.filter(pl.col("source_ts") <= pl.lit(snap).cast(_TS)).select(
+        CANONICAL_COLUMNS
+    )
+    # A Tardis free day is a full tick-level chain, not a single instant: collapse
+    # to the last quote per instrument at/before the snap so the validation pass
+    # compares the snapshot mark, not an average of stale intraday updates.
+    return _latest_quote_per_instrument(leakage_safe)

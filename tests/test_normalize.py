@@ -18,6 +18,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 import polars as pl
+import pytest
 
 from volguard.config import CurateConfig
 from volguard.curate.normalize import (
@@ -198,6 +199,43 @@ def test_canonical_from_tardis_source_ts_from_timestamp_us() -> None:
     out = canonical_from_tardis(_tardis_chain(), _SNAP, _CFG)
     assert out["source_ts"][0] == datetime(2022, 4, 1, 0, 0, tzinfo=UTC)
     assert out.select((pl.col("source_ts") <= _SNAP).all()).item()
+
+
+def test_canonical_from_tardis_collapses_to_latest_quote_per_instrument() -> None:
+    """A tick-level chain collapses to the last quote per instrument at the snap.
+
+    A Tardis free day is the full day of chain updates, so an instrument that
+    ticked several times before the snap must yield exactly one canonical row —
+    the most recent quote — not one row per tick (which would let stale intraday
+    marks skew the validation pass).
+    """
+    df = pl.read_csv(FIXTURE)
+    one = df.filter(pl.col("symbol") == "BTC-1APR22-45000-C")
+    base_us = int(one["timestamp"][0])
+    hour_us = 3_600_000_000
+    # Three earlier ticks + one latest tick (all <= snap) for the same symbol,
+    # each with a distinct mark_iv so we can assert which one survives.
+    ticks = pl.concat(
+        [
+            one.with_columns(
+                pl.lit(base_us + i * hour_us).alias("timestamp"),
+                pl.lit(50.0 + i).alias("mark_iv"),  # 50, 51, 52, 53 (latest)
+            )
+            for i in range(4)
+        ]
+    )
+    others = df.filter(pl.col("symbol") != "BTC-1APR22-45000-C")
+    chain = validate(pl.concat([others, ticks]), TARDIS_CHAIN).lazy()
+
+    out = canonical_from_tardis(chain, _SNAP, _CFG)
+    # The ticked instrument is the 1APR22 45000-C (the fixture also has a distinct
+    # 29APR22 45000-C, so key on the expiry too).
+    apr1 = datetime(2022, 4, 1, 8, 0, tzinfo=UTC)
+    dup = out.filter(
+        (pl.col("strike") == 45000.0) & (pl.col("cp") == "C") & (pl.col("expiry") == apr1)
+    )
+    assert dup.height == 1  # four ticks collapsed to a single row
+    assert dup["iv_trade"][0] == pytest.approx(0.53)  # the latest tick's mark_iv
 
 
 def test_canonical_from_tardis_leakage_filter() -> None:

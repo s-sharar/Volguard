@@ -50,7 +50,7 @@ import polars as pl
 
 from volguard.config import CurateConfig
 from volguard.curate import filters, forwards, normalize
-from volguard.curate.schemas import QUOTES_NORM, validate
+from volguard.curate.schemas import QUOTES_NORM, quotes_norm_schema, validate
 from volguard.ingest.schemas import TARDIS_CHAIN
 from volguard.ingest.schemas import validate as validate_raw
 
@@ -132,7 +132,10 @@ def curate_tardis_chain(
         pl.col("size").fill_null(0.0).alias("size")
     )
     out = kept.select(_OUTPUT_COLUMNS).sort(["expiry", "strike", "cp"])
-    return validate(out, QUOTES_NORM)
+    # Validate against the schema banded by *this* cfg (not the module-level
+    # default), so a Tardis run with a loosened IV band in configs/curate.yaml
+    # stays consistent between the filter stage and the boundary contract.
+    return validate(out, quotes_norm_schema(cfg))
 
 
 @dataclass(frozen=True, slots=True)
