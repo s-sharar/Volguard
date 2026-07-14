@@ -150,16 +150,103 @@ def features(
 
 @app.command()
 def train(
-    model: str = typer.Argument(..., help="Model id: b0..b4 | model-a | model-b"),
+    model: str = typer.Argument(
+        ...,
+        help="Model id: b0..b4 | baselines (all) | model-a | model-b (M7)",
+    ),
+    evaluate_after: bool = typer.Option(
+        True,
+        "--evaluate/--no-evaluate",
+        help="Run evaluation after training (baselines).",
+    ),
+    update_log: bool = typer.Option(
+        True,
+        "--update-log/--no-update-log",
+        help="Append headline results to docs/experiment-log.md.",
+    ),
 ) -> None:
     """Layer 4 — train a baseline or ML forecaster (M6/M7)."""
-    _todo(f"train[{model}]")
+    key = model.strip().lower()
+    if key.startswith("model-"):
+        _todo(f"train[{model}]")
+        return
+
+    logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s %(message)s")
+    from volguard.experiments.pipeline import train_and_evaluate, train_baselines  # noqa: PLC0415
+
+    eval_cfg = load_config("eval", EvalConfig)
+    data_cfg = load_config("data", DataConfig)
+    if evaluate_after:
+        train_result, eval_result = train_and_evaluate(
+            model=key,
+            eval_cfg=eval_cfg,
+            data_cfg=data_cfg,
+            update_log=update_log,
+        )
+        console.print(
+            f"[green]train[/green]: {train_result.run_id} "
+            f"models={','.join(train_result.model_ids)} "
+            f"repair_failures={eval_result.repair_failures}"
+        )
+    else:
+        train_result = train_baselines(model=key, eval_cfg=eval_cfg, data_cfg=data_cfg)
+        console.print(
+            f"[green]train[/green]: {train_result.run_id} "
+            f"models={','.join(train_result.model_ids)} (evaluate skipped)"
+        )
 
 
 @app.command()
-def evaluate() -> None:
+def evaluate(
+    run_id: str | None = typer.Option(
+        None,
+        "--run-id",
+        help="Run id to evaluate; defaults to the latest trained/evaluated run.",
+    ),
+    update_log: bool = typer.Option(
+        False,
+        "--update-log/--no-update-log",
+        help="Append headline results to docs/experiment-log.md.",
+    ),
+) -> None:
     """Layer 5 — run the forecast + arbitrage metric suite (M6)."""
-    _todo("evaluate")
+    logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s %(message)s")
+    from datetime import datetime  # noqa: PLC0415
+
+    from volguard.experiments.pipeline import (  # noqa: PLC0415
+        TrainResult,
+        append_experiment_log,
+        evaluate_run,
+    )
+    from volguard.experiments.store import RunStore  # noqa: PLC0415
+    from volguard.models.types import RunManifest  # noqa: PLC0415
+
+    eval_cfg = load_config("eval", EvalConfig)
+    data_cfg = load_config("data", DataConfig)
+    result = evaluate_run(run_id=run_id, eval_cfg=eval_cfg, data_cfg=data_cfg)
+    if update_log:
+        store = RunStore(eval_cfg.artifacts.runs_dir)
+        manifest_payload = store.read_json(result.run_id, "run_manifest.json")
+        train_stub = TrainResult(
+            run_id=result.run_id,
+            model_ids=tuple(manifest_payload["model_ids"]),
+            run_dir=store.run_dir(result.run_id),
+            manifest=RunManifest(
+                run_id=manifest_payload["run_id"],
+                created_at=datetime.fromisoformat(manifest_payload["created_at"]),
+                model_ids=tuple(manifest_payload["model_ids"]),
+                config_hash=manifest_payload["config_hash"],
+                data_fingerprint=manifest_payload["data_fingerprint"],
+                git_commit=manifest_payload.get("git_commit"),
+                seed=int(manifest_payload["seed"]),
+            ),
+            batches={},
+        )
+        append_experiment_log(eval_cfg=eval_cfg, train=train_stub, evaluate=result)
+    console.print(
+        f"[green]evaluate[/green]: {result.run_id} "
+        f"repair_failures={result.repair_failures} metrics={len(result.metrics)}"
+    )
 
 
 @app.command()
