@@ -9,7 +9,9 @@ walk-forward methodology.
 See [`volguard_iv_surface_forecasting_eca4a5d2.plan.md`](./volguard_iv_surface_forecasting_eca4a5d2.plan.md)
 for the full plan.
 
-> **Status:** M0 scaffold. Pipeline stages are stubs; math core lands in M1.
+> **Status:** M0–M5 implemented. Collection, ingestion, curation, soft-constrained
+> fitted surfaces with QC, daily features, and walk-forward dataset construction
+> are available; model training and evaluation remain future milestones.
 
 ## Quickstart
 
@@ -39,12 +41,27 @@ One command per pipeline stage:
 ```bash
 uv run volguard ingest deribit-history   # Layer 0 — raw data pulls (M2)
 uv run volguard build-surfaces           # Layer 2 — SVI surfaces (M4)
-uv run volguard features                 # Layer 3 — feature table (M5)
+uv run volguard features --start 2022-01-01 --end 2022-12-31
+                                            # Layer 3 — features + split manifest (M5)
 uv run volguard train b0                 # Layer 4 — baselines / ML (M6/M7)
 uv run volguard evaluate                 # Layer 5 — metric suite (M6)
 uv run volguard backtest                 # Layer 5 — economic eval (M8)
 uv run volguard report                   # Layer 6 — figures + memo (M10)
 ```
+
+The feature stage keeps the raw fitted M4 grid as the canonical model state and
+target. It hard-rejects only structurally invalid partitions (wrong 6×9 axes or
+signature, missing provenance, or nonfinite/negative values). Residual M4
+arbitrage counts, soft-certification failures, model-domain checks, fit quality,
+and interpolation/extrapolation are persisted as reason-coded diagnostics and
+per-cell reliability weights rather than deleting the date. Accepted dates are
+written under `data/features/daily/`; structural rejects and accepted warnings
+are audited in `data/features/qc/part.parquet`. Nullable market inputs such as
+dated-future basis and open interest remain null with explicit availability,
+age, and source-timestamp columns. Walk-forward target membership is stored in
+`data/features/splits/part.parquet`; PCA and any fold-calibrated transformations
+are fitted only on each fold's training data. The repair QP remains a
+post-forecast M6/M7 comparison, not a rewrite of the observed M4 target.
 
 ## Repo map
 

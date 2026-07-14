@@ -12,7 +12,7 @@ from pathlib import Path
 from typing import Any
 
 import yaml
-from pydantic import BaseModel, Field, model_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 # Raw-SVI has five free parameters, so a slice needs at least five points to fit
 # (matches the floor in ``surface/fit.py``); a snap needs two expiries for any
@@ -20,11 +20,33 @@ from pydantic import BaseModel, Field, model_validator
 _RAW_SVI_MIN_OBS = 5
 _MIN_CALENDAR_EXPIRIES = 2
 _MIN_ARB_POINTS = 3
+_FEATURE_RV_HORIZONS = (1, 5, 22)
+_FEATURE_DVOL_CHANGE_DAYS = 5
+_OHLC_RESOLUTIONS_MINUTES = frozenset({1, 3, 5, 10, 15, 30, 60, 120, 180, 360, 720, 1_440})
+# Deribit also exposes one-second DVOL candles, but that cadence is unsafe for
+# this full-history batch pipeline and unnecessary for daily features.
+_DVOL_RESOLUTIONS_SECONDS = frozenset({60, 3_600, 43_200, 86_400})
 
 # Repo root = three levels up from this file: src/volguard/config.py -> repo/
 REPO_ROOT = Path(__file__).resolve().parents[2]
 CONFIGS_DIR = REPO_ROOT / "configs"
 DATA_DIR = REPO_ROOT / "data"
+
+
+def _canonical_resolution(
+    value: object, allowed: frozenset[int], units_per_day: int, field: str
+) -> str:
+    normalized = str(value).strip().upper()
+    if normalized == "1D":
+        units = units_per_day
+    else:
+        try:
+            units = int(normalized)
+        except ValueError as exc:
+            raise ValueError(f"{field} must be a supported integer or '1D'") from exc
+    if units not in allowed:
+        raise ValueError(f"{field} is not a supported batch resolution")
+    return "1D" if units == units_per_day else str(units)
 
 
 class DataConfig(BaseModel):
@@ -68,6 +90,26 @@ class DataConfig(BaseModel):
     # Tardis free-sample option chains (first of every month since 2019-04).
     tardis_start: str = "2019-04-01"
     tardis_base_url: str = "https://datasets.tardis.dev/v1/deribit/options_chain"
+
+    @field_validator("ohlc_resolution", mode="before")
+    @classmethod
+    def _normalize_ohlc_resolution(cls, value: object) -> str:
+        return _canonical_resolution(value, _OHLC_RESOLUTIONS_MINUTES, 1_440, "ohlc_resolution")
+
+    @field_validator("dvol_resolution", mode="before")
+    @classmethod
+    def _normalize_dvol_resolution(cls, value: object) -> str:
+        return _canonical_resolution(value, _DVOL_RESOLUTIONS_SECONDS, 86_400, "dvol_resolution")
+
+    @property
+    def ohlc_resolution_minutes(self) -> int:
+        """Configured OHLC candle duration in minutes."""
+        return 1_440 if self.ohlc_resolution == "1D" else int(self.ohlc_resolution)
+
+    @property
+    def dvol_resolution_seconds(self) -> int:
+        """Configured DVOL candle duration in seconds."""
+        return 86_400 if self.dvol_resolution == "1D" else int(self.dvol_resolution)
 
     @property
     def checkpoint_dir(self) -> Path:
@@ -233,13 +275,94 @@ class CurateConfig(BaseModel):
 
 
 class EvalConfig(BaseModel):
-    """Walk-forward evaluation settings."""
+    """Walk-forward settings; the initial window includes its validation tail."""
 
     initial_train_months: int = 18
     val_months: int = 2
     test_months: int = 2
     step_months: int = 2
     seeds: list[int] = Field(default_factory=lambda: [0, 1, 2])
+
+    @property
+    def initial_fit_months(self) -> int:
+        """Months fitted before the validation tail in the initial window."""
+        return self.initial_train_months - self.val_months
+
+    @model_validator(mode="after")
+    def _check_windows(self) -> EvalConfig:
+        if self.initial_fit_months < 1:
+            raise ValueError("initial_train_months must exceed val_months")
+        if self.test_months < 1 or self.step_months < 1:
+            raise ValueError("test_months and step_months must be positive")
+        if (
+            not self.seeds
+            or len(self.seeds) != len(set(self.seeds))
+            or any(seed < 0 for seed in self.seeds)
+        ):
+            raise ValueError("seeds must be non-empty, unique, and nonnegative")
+        return self
+
+
+class FeatureConfig(BaseModel):
+    """M5 feature, source-staleness, PCA, and supervised-window settings."""
+
+    realized_horizons_days: list[int] = Field(default_factory=lambda: [1, 5, 22])
+    dvol_change_days: int = 5
+    jump_lookback_days: int = 22
+    jump_sigma_threshold: float = 3.0
+    ohlc_max_age_s: float = 7_200.0
+    dvol_max_age_s: float = 7_200.0
+    funding_max_age_s: float = 43_200.0
+    basis_max_age_s: float = 86_400.0
+    oi_max_age_s: float = 86_400.0
+    basis_target_days: int = 30
+    basis_min_days: int = 7
+    pca_components: int = 3
+    lookback_days: int = 20
+    forecast_horizon_days: int = 1
+    model_domain_calendar_points: int = Field(default=9, ge=3)
+    quality_n_obs_reference: int = Field(default=5, gt=0)
+    quality_interp_weight: float = Field(default=0.5, ge=0.0, le=1.0)
+    quality_extrap_weight: float = Field(default=0.0, ge=0.0, le=1.0)
+    quality_rmse_half_life: float = Field(default=0.05, gt=0.0)
+
+    @model_validator(mode="after")
+    def _check_feature_knobs(self) -> FeatureConfig:
+        horizons = self.realized_horizons_days
+        if not horizons or any(day < 1 for day in horizons):
+            raise ValueError("realized_horizons_days must contain positive values")
+        if any(b <= a for a, b in pairwise(horizons)):
+            raise ValueError("realized_horizons_days must be strictly increasing")
+        if tuple(horizons) != _FEATURE_RV_HORIZONS:
+            raise ValueError(
+                "realized_horizons_days must be [1, 5, 22] for the frozen daily feature schema"
+            )
+        if self.dvol_change_days != _FEATURE_DVOL_CHANGE_DAYS:
+            raise ValueError("dvol_change_days must be 5 for the frozen daily feature schema")
+        positive_ints = {
+            "dvol_change_days": self.dvol_change_days,
+            "jump_lookback_days": self.jump_lookback_days,
+            "basis_target_days": self.basis_target_days,
+            "basis_min_days": self.basis_min_days,
+            "pca_components": self.pca_components,
+            "lookback_days": self.lookback_days,
+            "forecast_horizon_days": self.forecast_horizon_days,
+        }
+        invalid = [name for name, value in positive_ints.items() if value < 1]
+        if invalid:
+            raise ValueError(f"{', '.join(invalid)} must be positive")
+        if self.jump_sigma_threshold <= 0:
+            raise ValueError("jump_sigma_threshold must be positive")
+        ages = (
+            self.ohlc_max_age_s,
+            self.dvol_max_age_s,
+            self.funding_max_age_s,
+            self.basis_max_age_s,
+            self.oi_max_age_s,
+        )
+        if any(age < 0 for age in ages):
+            raise ValueError("source maximum ages must be nonnegative")
+        return self
 
 
 class CollectorConfig(BaseModel):

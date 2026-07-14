@@ -15,7 +15,15 @@ from rich.console import Console
 
 from volguard import __version__
 from volguard.collector.poller import run_forever
-from volguard.config import CollectorConfig, CurateConfig, DataConfig, SurfaceConfig, load_config
+from volguard.config import (
+    CollectorConfig,
+    CurateConfig,
+    DataConfig,
+    EvalConfig,
+    FeatureConfig,
+    SurfaceConfig,
+    load_config,
+)
 
 _INGEST_SOURCES = ("deribit-history", "tardis", "underlying", "all")
 
@@ -113,9 +121,31 @@ def build_surfaces(
 
 
 @app.command()
-def features() -> None:
+def features(
+    start: str | None = typer.Option(None, help="Override start date (YYYY-MM-DD)."),
+    end: str | None = typer.Option(None, help="Override end date (YYYY-MM-DD)."),
+) -> None:
     """Layer 3 — build the feature table for modeling (M5)."""
-    _todo("features")
+    from datetime import date  # noqa: PLC0415
+
+    from volguard.features import pipeline  # noqa: PLC0415
+
+    data_cfg = load_config("data", DataConfig)
+    surface_cfg = load_config("surface", SurfaceConfig)
+    feature_cfg = load_config("features", FeatureConfig)
+    eval_cfg = load_config("eval", EvalConfig)
+    summary = pipeline.run_features(
+        feature_cfg,
+        data_cfg,
+        surface_cfg,
+        eval_cfg,
+        start=None if start is None else date.fromisoformat(start),
+        end=None if end is None else date.fromisoformat(end),
+    )
+    console.print(
+        f"[green]features[/green]: wrote {summary.accepted_count} dates; "
+        f"rejected {summary.rejected_count}"
+    )
 
 
 @app.command()
