@@ -274,14 +274,109 @@ class CurateConfig(BaseModel):
         return self
 
 
+class RepairEvalConfig(BaseModel):
+    """Post-forecast arbitrage-repair tolerances (shared + native)."""
+
+    max_iter: int = Field(default=10, gt=0)
+    move_tol: float = Field(default=1e-10, gt=0.0)
+    calendar_points: int = Field(default=9, ge=3)
+    eps: float = Field(default=1e-10, gt=0.0)
+
+
+class BaselineConfig(BaseModel):
+    """Hyperparameter grids for B0-B4 (tuned on fold 0/1 validation only)."""
+
+    ewma_lambdas: list[float] = Field(default_factory=lambda: [0.05, 0.10, 0.20, 0.40, 0.70, 1.0])
+    pca_components: list[int] = Field(default_factory=lambda: [3, 4, 5])
+    ridge_alphas: list[float] = Field(default_factory=lambda: [1e-6, 1e-4, 1e-2, 1.0, 100.0])
+    ridge_mean_windows: list[int] = Field(default_factory=lambda: [5, 22])
+    ridge_rv_horizons: list[int] = Field(default_factory=lambda: [1, 5, 22])
+
+    @model_validator(mode="after")
+    def _check_baseline_grids(self) -> BaselineConfig:
+        if not self.ewma_lambdas or any(not 0.0 < lam <= 1.0 for lam in self.ewma_lambdas):
+            raise ValueError("ewma_lambdas must be in (0, 1]")
+        if not self.pca_components or any(n < 1 for n in self.pca_components):
+            raise ValueError("pca_components must be positive")
+        if not self.ridge_alphas or any(alpha <= 0.0 for alpha in self.ridge_alphas):
+            raise ValueError("ridge_alphas must be positive")
+        if not self.ridge_mean_windows or any(n < 1 for n in self.ridge_mean_windows):
+            raise ValueError("ridge_mean_windows must be positive")
+        if not self.ridge_rv_horizons or any(n < 1 for n in self.ridge_rv_horizons):
+            raise ValueError("ridge_rv_horizons must be positive")
+        return self
+
+
+class MetricsConfig(BaseModel):
+    """Primary / robustness weight schemes for the evaluation harness."""
+
+    primary_weight: str = "vega"
+    robustness_weights: list[str] = Field(default_factory=lambda: ["uniform", "vega_reliability"])
+
+    @model_validator(mode="after")
+    def _check_weight_names(self) -> MetricsConfig:
+        allowed = {"vega", "uniform", "vega_reliability"}
+        if self.primary_weight not in allowed:
+            raise ValueError(f"primary_weight must be one of {sorted(allowed)}")
+        if not self.robustness_weights or any(
+            name not in allowed for name in self.robustness_weights
+        ):
+            raise ValueError(f"robustness_weights must be a non-empty subset of {sorted(allowed)}")
+        return self
+
+
+class SignificanceConfig(BaseModel):
+    """Diebold-Mariano settings for one-day surface-loss comparisons."""
+
+    dm_lag: int = Field(default=0, ge=0)
+    hln_correction: bool = True
+    two_sided: bool = True
+    bh_adjust_cells: bool = True
+    alpha: float = Field(default=0.05, gt=0.0, lt=1.0)
+
+
+class RegimeConfig(BaseModel):
+    """Calm / stress labeling from fold-training DVOL quantiles."""
+
+    stress_dvol_quantile: float = Field(default=0.8, gt=0.0, lt=1.0)
+
+
+class ArtifactPathsConfig(BaseModel):
+    """Append-only experiment artifact locations (gitignored runs, tracked log)."""
+
+    experiments_dir: Path = Field(default_factory=lambda: REPO_ROOT / "experiments")
+    registry_filename: str = "registry.duckdb"
+    experiment_log_path: Path = Field(
+        default_factory=lambda: REPO_ROOT / "docs" / "experiment-log.md"
+    )
+
+    @property
+    def runs_dir(self) -> Path:
+        """Directory for per-run artifact trees."""
+        return self.experiments_dir / "runs"
+
+    @property
+    def registry_path(self) -> Path:
+        """DuckDB registry used to record runs, folds, and metrics."""
+        return self.experiments_dir / self.registry_filename
+
+
 class EvalConfig(BaseModel):
-    """Walk-forward settings; the initial window includes its validation tail."""
+    """Walk-forward settings plus M6 harness / baseline / artifact contracts."""
 
     initial_train_months: int = 18
     val_months: int = 2
     test_months: int = 2
     step_months: int = 2
     seeds: list[int] = Field(default_factory=lambda: [0, 1, 2])
+    repair: RepairEvalConfig = Field(default_factory=RepairEvalConfig)
+    baselines: BaselineConfig = Field(default_factory=BaselineConfig)
+    metrics: MetricsConfig = Field(default_factory=MetricsConfig)
+    significance: SignificanceConfig = Field(default_factory=SignificanceConfig)
+    regimes: RegimeConfig = Field(default_factory=RegimeConfig)
+    artifacts: ArtifactPathsConfig = Field(default_factory=ArtifactPathsConfig)
+    # Nonnegative total-variance floor applied before labeling forecasts "raw".
+    w_floor: float = Field(default=0.0, ge=0.0)
 
     @property
     def initial_fit_months(self) -> int:

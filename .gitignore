@@ -46,6 +46,9 @@ data/
 
 # Experiments & model checkpoints
 experiments/runs/
+experiments/registry.duckdb
+experiments/*.duckdb
+
 checkpoints/
 *.pt
 *.pth

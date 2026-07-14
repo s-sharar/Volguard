@@ -1,7 +1,34 @@
-# Walk-forward evaluation config (plan section 12).
+# Walk-forward evaluation config (plan section 12) + M6 harness defaults.
 # Expanding window: 18mo train -> 2mo val -> 2mo test, step 2mo.
 initial_train_months: 18
 val_months: 2
 test_months: 2
 step_months: 2
 seeds: [0, 1, 2]
+w_floor: 0.0
+
+repair:
+  max_iter: 10
+  move_tol: 1.0e-10
+  calendar_points: 9
+  eps: 1.0e-10
+
+baselines:
+  ewma_lambdas: [0.05, 0.10, 0.20, 0.40, 0.70, 1.0]
+  pca_components: [3, 4, 5]
+  ridge_alphas: [1.0e-6, 1.0e-4, 1.0e-2, 1.0, 100.0]
+  ridge_mean_windows: [5, 22]
+  ridge_rv_horizons: [1, 5, 22]
+
+metrics:
+  primary_weight: vega
+  robustness_weights: [uniform, vega_reliability]
+
+significance:
+  dm_lag: 0
+  hln_correction: true
+  two_sided: true
+  bh_adjust_cells: true
+  alpha: 0.05
+regimes:
+  stress_dvol_quantile: 0.8
