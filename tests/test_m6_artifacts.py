@@ -124,6 +124,35 @@ def test_registry_roundtrip(tmp_path: Path) -> None:
         assert registry.get_run("r1")["status"] == "trained"
 
 
+def test_latest_run_includes_repair_failure_status(tmp_path: Path) -> None:
+    path = tmp_path / "registry.duckdb"
+    with ExperimentRegistry(path) as registry:
+        registry.register_run(
+            run_id="r-fail",
+            model_ids=("b0",),
+            config_hash="abc",
+            data_fingerprint="def",
+            git_commit=None,
+            lockfile_hash=None,
+            seed=0,
+            platform={"python": "3.12"},
+            dependencies={"numpy": "2"},
+        )
+        registry.set_status("r-fail", "evaluated_with_repair_failures")
+        assert registry.latest_successful_run_id() == "r-fail"
+
+
+def test_new_run_id_unique_within_same_second() -> None:
+    from datetime import UTC, datetime
+
+    from volguard.experiments.provenance import new_run_id
+
+    when = datetime(2026, 7, 13, 21, 0, 0, tzinfo=UTC)
+    ids = {new_run_id(when=when) for _ in range(20)}
+    assert len(ids) == 20
+    assert all(rid.startswith("20260713T210000Z-") for rid in ids)
+
+
 def test_train_b0_persist_and_evaluate_reload(tmp_path: Path) -> None:
     features = _write_panel(tmp_path)
     eval_cfg, data_cfg = _cfg(tmp_path)

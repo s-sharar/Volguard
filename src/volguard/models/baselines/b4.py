@@ -123,12 +123,21 @@ class RidgeBaseline:
         x_train_raw, y_train, w_train = _build_supervised(ctx, train_idx, mean_windows)
         x_train, medians, scales, _ = _impute_and_scale_train(x_train_raw)
 
-        def _loss_for_alpha(alpha: float, x_raw: FloatArray, y: FloatArray, w: FloatArray) -> float:
-            x = np.stack([_transform_row(row, medians, scales) for row in x_raw])
+        def _ridge_heads(alpha: float, x: FloatArray, y: FloatArray, w: FloatArray) -> FloatArray:
+            betas_local = np.zeros((_N_CELLS, x.shape[1] + 1), dtype=np.float64)
+            for cell in range(_N_CELLS):
+                betas_local[cell] = ridge_closed_form(
+                    x, y[:, cell], alpha, sample_weight=w[:, cell]
+                )
+            return betas_local
+
+        def _weighted_mse(
+            betas_local: FloatArray, x: FloatArray, y: FloatArray, w: FloatArray
+        ) -> float:
             total = 0.0
             weight_sum = 0.0
             for cell in range(_N_CELLS):
-                beta = ridge_closed_form(x, y[:, cell], alpha, sample_weight=w[:, cell])
+                beta = betas_local[cell]
                 pred = x @ beta[:-1] + beta[-1]
                 total += float(np.sum(w[:, cell] * (pred - y[:, cell]) ** 2))
                 weight_sum += float(np.sum(w[:, cell]))
@@ -141,13 +150,24 @@ class RidgeBaseline:
             x_val_raw, y_val, w_val = _build_supervised(
                 ctx, list(ctx.validation_indices), mean_windows
             )
-            scored = [(_loss_for_alpha(a, x_val_raw, y_val, w_val), a) for a in alphas]
+            x_val = np.stack([_transform_row(row, medians, scales) for row in x_val_raw])
+
+            def _validation_loss(candidate: float) -> float:
+                # Fit on train only; score hold-out validation predictions.
+                betas_fit = _ridge_heads(candidate, x_train, y_train, w_train)
+                return _weighted_mse(betas_fit, x_val, y_val, w_val)
+
+            scored = [(_validation_loss(a), a) for a in alphas]
             scored.sort(key=lambda item: (item[0], item[1]))
             alpha = float(scored[0][1])
             trace = [{"alpha": a, "validation_vw_mse": loss} for loss, a in scored]
         else:
             # Training-only alpha selection when validation is unavailable.
-            scored = [(_loss_for_alpha(a, x_train_raw, y_train, w_train), a) for a in alphas]
+            def _train_loss(candidate: float) -> float:
+                betas_fit = _ridge_heads(candidate, x_train, y_train, w_train)
+                return _weighted_mse(betas_fit, x_train, y_train, w_train)
+
+            scored = [(_train_loss(a), a) for a in alphas]
             scored.sort(key=lambda item: (item[0], item[1]))
             alpha = float(scored[0][1])
             trace = [{"alpha": a, "train_vw_mse": loss} for loss, a in scored]

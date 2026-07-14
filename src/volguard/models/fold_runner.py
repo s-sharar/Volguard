@@ -140,8 +140,9 @@ def apply_w_floor(raw: FloatArray, floor: float) -> tuple[FloatArray, int, float
 
 
 def _forecast_splits(fold: Fold) -> tuple[Split, ...]:
+    """Out-of-sample splits only — train targets stay out of the scored batch."""
     del fold
-    return ("train", "validation", "test")
+    return ("validation", "test")
 
 
 def run_fold_forecasts(
@@ -151,11 +152,12 @@ def run_fold_forecasts(
     cfg: EvalConfig,
     frozen_hyperparameters: HyperParams | None = None,
 ) -> ForecastBatch:
-    """Fit on the training interval, then forecast each later day before seeing it.
+    """Fit on the training interval, then forecast validation/test days only.
 
-    Later one-day forecasts may consume earlier realized days (including earlier
-    validation/test realizations once elapsed), but model coefficients remain
-    those returned by ``fit``.
+    Coefficients are frozen after ``fit``. Later one-day forecasts may still
+    consume earlier realized days (including earlier validation/test outcomes
+    once elapsed) through ``history_end``, but train-interval targets are never
+    emitted so evaluation metrics stay out of sample.
     """
     tune = bool(ctx.fold.tune_hyperparameters and frozen_hyperparameters is None)
     fitted = model.fit(

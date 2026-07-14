@@ -113,6 +113,8 @@ def test_b0_forecasts_equal_previous_day_and_ignore_future_poison(tmp_path: Path
     poison_batch = run_fold_forecasts(model, build_fold_context(poisoned, fold, cfg), cfg=cfg)
 
     assert len(clean_batch.records) == len(poison_batch.records) > 0
+    assert {rec.split for rec in clean_batch.records} <= {"validation", "test"}
+    assert "train" not in {rec.split for rec in clean_batch.records}
     for clean_rec, poison_rec in zip(clean_batch.records, poison_batch.records, strict=True):
         assert clean_rec.target_date == poison_rec.target_date
         assert clean_rec.issue_date < clean_rec.target_date

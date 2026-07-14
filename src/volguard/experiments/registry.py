@@ -244,7 +244,7 @@ class ExperimentRegistry:
         frame = self._conn.execute(
             """
             SELECT run_id FROM runs
-            WHERE status = 'trained' OR status = 'evaluated'
+            WHERE status IN ('trained', 'evaluated', 'evaluated_with_repair_failures')
             ORDER BY created_at DESC
             LIMIT 1
             """

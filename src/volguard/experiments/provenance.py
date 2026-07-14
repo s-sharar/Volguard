@@ -5,6 +5,7 @@ from __future__ import annotations
 import hashlib
 import json
 import platform
+import secrets
 import subprocess
 import sys
 from datetime import UTC, datetime
@@ -15,9 +16,9 @@ from volguard.config import REPO_ROOT, EvalConfig
 
 
 def new_run_id(*, when: datetime | None = None) -> str:
-    """UTC timestamp + short random hex suffix."""
+    """UTC timestamp + short random hex suffix (unique within the same second)."""
     stamp = (when or datetime.now(UTC)).strftime("%Y%m%dT%H%M%SZ")
-    suffix = hashlib.sha1(stamp.encode(), usedforsecurity=False).hexdigest()[:8]
+    suffix = secrets.token_hex(4)
     return f"{stamp}-{suffix}"
 
 
